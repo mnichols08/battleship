@@ -4857,6 +4857,8 @@ class GameApp extends HTMLElement {
       type: 'solo',
       aiBoard: null,
       playerBoard: null,
+      aiTargetQueue: [],
+      aiTargetSet: new Set(),
     };
     this.updateHint();
     this.updateControls();
@@ -4880,6 +4882,7 @@ class GameApp extends HTMLElement {
     this.handleServerEvent({ type: 'layoutAccepted' });
     this.localGame.playerBoard = this.createBoardState(this.placedShips);
     this.localGame.aiBoard = this.createBoardState(aiFleet);
+    this.resetAiTargeting();
     this.handleServerEvent({ type: 'opponentReady' });
     const youStart = Math.random() >= 0.5;
     this.handleServerEvent({ type: 'gameStart', youStart });
@@ -4950,7 +4953,10 @@ class GameApp extends HTMLElement {
     }
 
     const board = this.localGame.playerBoard;
-    const target = this.chooseRandomTarget(board);
+    let target = this.popNextAiTarget(board);
+    if (!target) {
+      target = this.chooseRandomTarget(board);
+    }
     if (!target) {
       return;
     }
@@ -4971,6 +4977,7 @@ class GameApp extends HTMLElement {
       if (outcome === 'sunk') {
         sunkShip = ship;
       }
+      this.handleAiShotOutcome(board, target, ship, outcome);
     } else {
       board.shots.set(key, 'miss');
     }
@@ -5694,6 +5701,150 @@ class GameApp extends HTMLElement {
       occupied,
       shots: new Map(),
     };
+  }
+
+  isWithinBounds(x, y) {
+    return x >= 0 && x < 10 && y >= 0 && y < 10;
+  }
+
+  resetAiTargeting() {
+    if (!this.localGame || this.localGame.type !== 'solo') {
+      return;
+    }
+    this.localGame.aiTargetQueue = [];
+    this.localGame.aiTargetSet = new Set();
+  }
+
+  enqueueAiTarget(board, x, y) {
+    if (!this.localGame || this.localGame.type !== 'solo') {
+      return;
+    }
+    if (!this.isWithinBounds(x, y)) {
+      return;
+    }
+    const key = `${x},${y}`;
+    if (board && board.shots && board.shots.has(key)) {
+      return;
+    }
+    if (!Array.isArray(this.localGame.aiTargetQueue)) {
+      this.localGame.aiTargetQueue = [];
+    }
+    if (!this.localGame.aiTargetSet || typeof this.localGame.aiTargetSet.has !== 'function') {
+      this.localGame.aiTargetSet = new Set();
+    }
+    if (this.localGame.aiTargetSet.has(key)) {
+      return;
+    }
+    this.localGame.aiTargetQueue.push(key);
+    this.localGame.aiTargetSet.add(key);
+  }
+
+  popNextAiTarget(board) {
+    if (!this.localGame || this.localGame.type !== 'solo') {
+      return null;
+    }
+    if (!Array.isArray(this.localGame.aiTargetQueue)) {
+      this.localGame.aiTargetQueue = [];
+      return null;
+    }
+    while (this.localGame.aiTargetQueue.length > 0) {
+      const key = this.localGame.aiTargetQueue.shift();
+      if (this.localGame.aiTargetSet && typeof this.localGame.aiTargetSet.delete === 'function') {
+        this.localGame.aiTargetSet.delete(key);
+      }
+      if (board && board.shots && board.shots.has(key)) {
+        continue;
+      }
+      const [rawX, rawY] = key.split(',').map(Number);
+      if (Number.isInteger(rawX) && Number.isInteger(rawY) && this.isWithinBounds(rawX, rawY)) {
+        return { x: rawX, y: rawY };
+      }
+    }
+    return null;
+  }
+
+  pruneAiQueueToOrientation(board, hits, orientation) {
+    if (!this.localGame || this.localGame.type !== 'solo' || !Array.isArray(this.localGame.aiTargetQueue)) {
+      return;
+    }
+    const anchor = orientation === 'vertical' ? hits[0].x : hits[0].y;
+    const filtered = [];
+    this.localGame.aiTargetQueue.forEach((key) => {
+      if (board && board.shots && board.shots.has(key)) {
+        if (this.localGame.aiTargetSet) {
+          this.localGame.aiTargetSet.delete(key);
+        }
+        return;
+      }
+      const [qx, qy] = key.split(',').map(Number);
+      if (orientation === 'vertical') {
+        if (qx !== anchor) {
+          if (this.localGame.aiTargetSet) {
+            this.localGame.aiTargetSet.delete(key);
+          }
+          return;
+        }
+      } else if (qy !== anchor) {
+        if (this.localGame.aiTargetSet) {
+          this.localGame.aiTargetSet.delete(key);
+        }
+        return;
+      }
+      filtered.push(key);
+    });
+    this.localGame.aiTargetQueue = filtered;
+  }
+
+  handleAiShotOutcome(board, target, ship, outcome) {
+    if (!this.localGame || this.localGame.type !== 'solo' || !ship) {
+      return;
+    }
+    if (outcome === 'sunk') {
+      this.resetAiTargeting();
+      return;
+    }
+
+    const hits = Array.from(ship.hits || []).map((key) => {
+      const [hx, hy] = key.split(',').map(Number);
+      return { x: hx, y: hy };
+    });
+
+    if (hits.length === 0) {
+      return;
+    }
+
+    let candidates = [];
+    if (hits.length >= 2) {
+      const vertical = hits.every((point) => point.x === hits[0].x);
+      if (vertical) {
+        const ys = hits.map((point) => point.y);
+        const minY = Math.min(...ys);
+        const maxY = Math.max(...ys);
+        this.pruneAiQueueToOrientation(board, hits, 'vertical');
+        candidates = [
+          { x: hits[0].x, y: minY - 1 },
+          { x: hits[0].x, y: maxY + 1 },
+        ];
+      } else {
+        const xs = hits.map((point) => point.x);
+        const minX = Math.min(...xs);
+        const maxX = Math.max(...xs);
+        this.pruneAiQueueToOrientation(board, hits, 'horizontal');
+        candidates = [
+          { x: minX - 1, y: hits[0].y },
+          { x: maxX + 1, y: hits[0].y },
+        ];
+      }
+    } else {
+      candidates = [
+        { x: target.x + 1, y: target.y },
+        { x: target.x - 1, y: target.y },
+        { x: target.x, y: target.y + 1 },
+        { x: target.x, y: target.y - 1 },
+      ];
+    }
+
+    candidates.forEach(({ x, y }) => this.enqueueAiTarget(board, x, y));
   }
 
   chooseRandomTarget(board) {
