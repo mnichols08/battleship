@@ -3342,19 +3342,20 @@ class GameApp extends HTMLElement {
     }
 
     const allSunk = this.allShipsSunk(board);
+    const nextTurn = allSunk ? null : outcome === 'miss' ? 2 : 1;
     const payload = {
       x,
       y,
       outcome: outcome === 'sunk' ? 'sunk' : outcome,
       ship: sunkShip ? { name: sunkShip.name, coordinates: sunkShip.coordinates } : null,
-      nextTurn: allSunk ? null : 2,
+      nextTurn,
     };
 
     this.processFireResult(payload);
 
     if (allSunk) {
       this.handleServerEvent({ type: 'gameOver', result: 'win' });
-    } else {
+    } else if (nextTurn === 2) {
       this.scheduleLocalAiTurn();
     }
   }
@@ -3402,18 +3403,21 @@ class GameApp extends HTMLElement {
     }
 
     const allSunk = this.allShipsSunk(board);
+    const nextTurn = allSunk ? null : outcome === 'miss' ? 1 : 2;
     const payload = {
       x: target.x,
       y: target.y,
       outcome: outcome === 'sunk' ? 'sunk' : outcome,
       ship: sunkShip ? { name: sunkShip.name, coordinates: sunkShip.coordinates } : null,
-      nextTurn: allSunk ? null : 1,
+      nextTurn,
     };
 
     this.processIncomingFire(payload);
 
     if (allSunk) {
       this.handleServerEvent({ type: 'gameOver', result: 'lose' });
+    } else if (nextTurn === 2) {
+      this.scheduleLocalAiTurn();
     }
   }
 
