@@ -1660,6 +1660,12 @@ class GameApp extends HTMLElement {
   connectedCallback() {
     this.bindElements();
     this.showModeOverlay();
+    if (!this.ws || this.ws.readyState === WebSocket.CLOSED) {
+      this.connect();
+    }
+    if (!this.hasCommanderName()) {
+      this.promptCommanderName({ focus: true, message: 'Enter your commander name to begin chatting.' });
+    }
     this.updateStatus();
   }
 
@@ -2859,8 +2865,7 @@ class GameApp extends HTMLElement {
     if (!this.chatPanel) {
       return;
     }
-    const visible = this.mode === 'pvp';
-    this.chatPanel.hidden = !visible;
+    this.chatPanel.hidden = false;
   }
 
   updateChatContextUI() {
@@ -3014,7 +3019,7 @@ class GameApp extends HTMLElement {
     if (!this.chatInput) {
       return;
     }
-    const canChat = this.mode === 'pvp' && this.chat.connection === 'online';
+    const canChat = this.chat.connection === 'online';
     this.chatInput.disabled = !canChat;
     if (this.chatSendBtn) {
       this.chatSendBtn.disabled = !canChat;
@@ -3197,6 +3202,31 @@ class GameApp extends HTMLElement {
         this.updateProfileUI();
       }, 3200);
     }
+  }
+
+  hasCommanderName() {
+    const name = this.profile && typeof this.profile.name === 'string' ? this.profile.name.trim() : '';
+    return name.length >= 2;
+  }
+
+  promptCommanderName({ focus = false, message } = {}) {
+    const promptMessage = message || 'Set your commander name to report for duty.';
+    this.setProfileStatus(promptMessage, 'error', { autoClear: false });
+    if (focus && this.playerNameInput) {
+      requestAnimationFrame(() => {
+        this.playerNameInput.focus();
+        this.playerNameInput.select();
+      });
+    }
+  }
+
+  ensureCommanderName(options = {}) {
+    if (this.hasCommanderName()) {
+      return true;
+    }
+    const { focus = true, message } = options;
+    this.promptCommanderName({ focus, message: message || 'Enter your commander name before joining a room.' });
+    return false;
   }
 
   submitCommanderName() {
@@ -4334,10 +4364,10 @@ class GameApp extends HTMLElement {
     this.hintLine = this.shadowRoot.querySelector('#hintLine');
     this.logPanel = this.shadowRoot.querySelector('#logPanel');
     this.playAgainBtn = this.shadowRoot.querySelector('#playAgainBtn');
-  this.playerNameForm = this.shadowRoot.querySelector('#playerNameForm');
-  this.playerNameInput = this.shadowRoot.querySelector('#playerNameInput');
-  this.playerNameStatus = this.shadowRoot.querySelector('#playerNameStatus');
-  this.leaderboardBtn = this.shadowRoot.querySelector('#leaderboardBtn');
+    this.playerNameForm = this.shadowRoot.querySelector('#playerNameForm');
+    this.playerNameInput = this.shadowRoot.querySelector('#playerNameInput');
+    this.playerNameStatus = this.shadowRoot.querySelector('#playerNameStatus');
+    this.leaderboardBtn = this.shadowRoot.querySelector('#leaderboardBtn');
 
     this.ownGrid = this.shadowRoot.querySelector('#ownGrid');
     this.targetGrid = this.shadowRoot.querySelector('#targetGrid');
@@ -4494,6 +4524,10 @@ class GameApp extends HTMLElement {
     if (this.createRoomForm) {
       this.createRoomForm.addEventListener('submit', (event) => {
         event.preventDefault();
+        if (!this.ensureCommanderName({ focus: true, message: 'Set your commander name before creating a room.' })) {
+          this.addLog('Commander name required to create a room.', 'error');
+          return;
+        }
         const name = this.roomNameInput ? this.roomNameInput.value.trim() : '';
         if (!name) {
           this.addLog('Enter a room name to deploy a lobby.', 'error');
@@ -4524,6 +4558,10 @@ class GameApp extends HTMLElement {
         }
         const { roomId } = button.dataset;
         if (!roomId) {
+          return;
+        }
+        if (!this.ensureCommanderName({ focus: true })) {
+          this.addLog('Set your commander name before joining a room.', 'error');
           return;
         }
         this.send({ type: 'joinRoom', roomId });
@@ -4838,6 +4876,9 @@ class GameApp extends HTMLElement {
     this.ownGrid.removeAttribute('reveal-ships');
     this.targetGrid.removeAttribute('reveal-ships');
     this.turnInfo.textContent = 'Connecting to the lobby...';
+    if (!this.hasCommanderName()) {
+      this.promptCommanderName({ focus: false, message: 'Set your commander name to stand out in the lobby.' });
+    }
     this.enterLobby();
     this.connect();
     if (this.audio) {
