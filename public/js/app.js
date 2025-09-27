@@ -928,6 +928,10 @@ class GameApp extends HTMLElement {
     this.currentRoom = null;
     this.waitingForOpponent = false;
     this.musicLab = this.createMusicLabState();
+    this.sudoku = this.createSudokuState();
+    this.handleSudokuKeypadClick = this.handleSudokuKeypadClick.bind(this);
+    this.handleSudokuBoardClick = this.handleSudokuBoardClick.bind(this);
+    this.handleSudokuOverlayKeydown = this.handleSudokuOverlayKeydown.bind(this);
     this.render();
   }
 
@@ -995,6 +999,9 @@ class GameApp extends HTMLElement {
         }
         .header-buttons button {
           min-width: 110px;
+        }
+        .header-buttons button.attention {
+          box-shadow: 0 0 0 2px rgba(78, 220, 255, 0.4), 0 0 20px rgba(78, 220, 255, 0.45);
         }
         .boards {
           display: grid;
@@ -1326,6 +1333,139 @@ class GameApp extends HTMLElement {
           min-height: 20px;
           color: var(--text-secondary);
         }
+        .sudoku-overlay {
+          position: fixed;
+          inset: 0;
+          display: grid;
+          place-items: center;
+          background: rgba(4, 10, 18, 0.9);
+          backdrop-filter: blur(26px);
+          z-index: 994;
+        }
+        .sudoku-overlay[hidden] {
+          display: none;
+        }
+        .sudoku-panel {
+          width: min(520px, 90vw);
+          background: rgba(14, 24, 40, 0.96);
+          border-radius: 28px;
+          padding: 26px;
+          display: grid;
+          gap: 18px;
+          box-shadow: 0 28px 70px rgba(0, 0, 0, 0.55), inset 0 0 0 1px rgba(78, 220, 255, 0.16);
+        }
+        .sudoku-panel-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 10px;
+        }
+        .sudoku-panel-header h2 {
+          margin: 0;
+          font-size: 24px;
+        }
+        #closeSudokuOverlayBtn {
+          font-size: 20px;
+          line-height: 1;
+          padding: 8px 12px;
+          background: rgba(20, 32, 52, 0.9);
+          border: 1px solid rgba(78, 220, 255, 0.24);
+          border-radius: 12px;
+          width: 42px;
+          height: 42px;
+        }
+        .sudoku-description {
+          margin: 0;
+          color: var(--text-secondary);
+          font-size: 14px;
+        }
+        .sudoku-board {
+          display: grid;
+          grid-template-columns: repeat(9, minmax(36px, 1fr));
+          gap: 4px;
+          background: rgba(10, 18, 32, 0.9);
+          padding: 12px;
+          border-radius: 22px;
+          box-shadow: inset 0 0 0 1px rgba(78, 220, 255, 0.18);
+        }
+        .sudoku-cell {
+          position: relative;
+          width: 100%;
+          aspect-ratio: 1;
+          border-radius: 10px;
+          border: 1px solid rgba(78, 220, 255, 0.16);
+          background: rgba(30, 44, 66, 0.72);
+          color: rgba(255, 255, 255, 0.82);
+          font-size: 18px;
+          font-weight: 600;
+          display: grid;
+          place-items: center;
+          cursor: pointer;
+          transition: transform 120ms ease, box-shadow 140ms ease, border 160ms ease, background 160ms ease;
+        }
+        .sudoku-cell:hover {
+          transform: translateY(-1px);
+          border-color: rgba(78, 220, 255, 0.35);
+        }
+        .sudoku-cell.selected {
+          box-shadow: 0 0 0 2px rgba(78, 220, 255, 0.5);
+          border-color: rgba(78, 220, 255, 0.6);
+        }
+        .sudoku-cell.fixed {
+          background: rgba(54, 74, 104, 0.9);
+          border-color: rgba(78, 220, 255, 0.35);
+          cursor: default;
+        }
+        .sudoku-cell.fixed:hover {
+          transform: none;
+        }
+        .sudoku-cell.error {
+          border-color: rgba(255, 99, 132, 0.7);
+          box-shadow: 0 0 0 2px rgba(255, 99, 132, 0.45);
+        }
+        .sudoku-cell.conflict {
+          background: rgba(255, 99, 132, 0.25);
+          border-color: rgba(255, 99, 132, 0.45);
+        }
+        .sudoku-cell:nth-child(9n + 1) {
+          margin-left: 0;
+        }
+        .sudoku-board .sudoku-cell[data-subgrid-left='true'] {
+          border-left: 2px solid rgba(255, 255, 255, 0.18);
+        }
+        .sudoku-board .sudoku-cell[data-subgrid-top='true'] {
+          border-top: 2px solid rgba(255, 255, 255, 0.18);
+        }
+        .sudoku-board .sudoku-cell[data-subgrid-right='true'] {
+          border-right: 2px solid rgba(255, 255, 255, 0.18);
+        }
+        .sudoku-board .sudoku-cell[data-subgrid-bottom='true'] {
+          border-bottom: 2px solid rgba(255, 255, 255, 0.18);
+        }
+        .sudoku-keypad {
+          display: grid;
+          grid-template-columns: repeat(5, minmax(60px, 1fr));
+          gap: 10px;
+        }
+        .sudoku-keypad button {
+          padding: 12px 0;
+          border-radius: 14px;
+          font-size: 16px;
+        }
+        .sudoku-controls {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px;
+        }
+        .sudoku-controls button {
+          flex: 1;
+          min-width: 130px;
+        }
+        .sudoku-info {
+          min-height: 20px;
+          font-size: 13px;
+          color: var(--text-secondary);
+        }
       </style>
       <div class="shell">
         <header>
@@ -1333,6 +1473,7 @@ class GameApp extends HTMLElement {
           <div class="header-tools">
             <div class="status-line" id="statusLine"></div>
             <div class="header-buttons">
+              <button id="sudokuBtn" type="button">Sudoku</button>
               <button id="musicLabBtn" type="button">Music Lab</button>
               <button id="toggleLobbyBtn" type="button" hidden>Lobby</button>
               <button id="leaveRoomBtn" type="button" hidden>Leave Room</button>
@@ -1394,6 +1535,23 @@ class GameApp extends HTMLElement {
           <button id="refreshRoomsBtn" type="button" class="lobby-refresh">Refresh Rooms</button>
           <div class="lobby-list" id="lobbyRooms"></div>
           <div class="lobby-info" id="lobbyInfo"></div>
+        </div>
+      </div>
+      <div class="sudoku-overlay" id="sudokuOverlay" hidden tabindex="-1">
+        <div class="sudoku-panel" role="dialog" aria-modal="true" aria-labelledby="sudokuTitle">
+          <div class="sudoku-panel-header">
+            <h2 id="sudokuTitle">Sudoku Bay</h2>
+            <button id="closeSudokuOverlayBtn" type="button" aria-label="Close sudoku bay">×</button>
+          </div>
+          <p class="sudoku-description">Pass the time before the next battle by solving this tactical puzzle.</p>
+          <div class="sudoku-board" id="sudokuBoard"></div>
+          <div class="sudoku-keypad" id="sudokuKeypad"></div>
+          <div class="sudoku-controls">
+            <button id="sudokuHintBtn" type="button">Hint</button>
+            <button id="sudokuCheckBtn" type="button">Check Board</button>
+            <button id="sudokuNewBtn" type="button">New Puzzle</button>
+          </div>
+          <div class="sudoku-info" id="sudokuInfo" aria-live="polite"></div>
         </div>
       </div>
       <div class="music-overlay" id="musicOverlay" hidden>
@@ -1781,6 +1939,591 @@ class GameApp extends HTMLElement {
     this.updateMusicLabInfo('Tap pads to arm them and press Play.');
   }
 
+  shutdownSudoku() {
+    if (!this.sudoku) {
+      return;
+    }
+    this.closeSudokuOverlay({ silent: true });
+    this.sudoku.selectedIndex = null;
+    this.sudoku.errors.clear();
+    this.sudoku.conflicts.clear();
+    this.sudoku.completed = false;
+    if (Array.isArray(this.sudoku.puzzles) && this.sudoku.puzzles.length > 0) {
+      this.loadSudokuPuzzle({ announce: false });
+    }
+    this.setSudokuInfo('Select a cell to begin.');
+    this.updateSudokuButtonAttention();
+  }
+
+  createSudokuState() {
+    return {
+      open: false,
+      selectedIndex: null,
+      puzzles: this.buildSudokuPuzzles(),
+      currentPuzzle: null,
+      cells: Array(81).fill(0),
+      solution: Array(81).fill(0),
+      givens: new Set(),
+      cellMap: new Map(),
+      errors: new Set(),
+      conflicts: new Set(),
+      waitingPrompt: false,
+      completed: false,
+      info: '',
+    };
+  }
+
+  buildSudokuPuzzles() {
+    return [
+      {
+        id: 'delta-reef',
+        puzzle: '530070000600195000098000060800060003400803001700020006060000280000419005000080079',
+        solution: '534678912672195348198342567859761423426853791713924856961537284287419635345286179',
+      },
+      {
+        id: 'aurora-gate',
+        puzzle: '200080300060070084030500209000105408000000000402706000301007040720040060004010003',
+        solution: '245986371169273584837541269673195428918324657452768931391652847728439165564817923',
+      },
+      {
+        id: 'nebula-swell',
+        puzzle: '000260701680070090190004500820100040004602900050003028009300074040050036703018000',
+        solution: '435269781682571493197834562826195347374682915951743628519326874248957136763418259',
+      },
+      {
+        id: 'tidal-cross',
+        puzzle: '300000000005009089200500000000867000500000001000321000000004003120700600000000005',
+        solution: '391286457675139289248574316432867159517492831869321574756914823123758694984653712',
+      },
+      {
+        id: 'polar-route',
+        puzzle: '040000000001940000009020007007000500800207009005000200300080100000079400000000090',
+        solution: '743851962581964723629327817237418596814257639965693248376582194158679432492135781',
+      },
+    ];
+  }
+
+  setupSudokuInterface() {
+    const state = this.sudoku;
+    if (!state || !this.sudokuBoard || !this.sudokuKeypad) {
+      return;
+    }
+
+    this.renderSudokuBoard();
+    this.renderSudokuKeypad();
+
+    if (this.sudokuBtn) {
+      this.sudokuBtn.addEventListener('click', () => {
+        if (state.open) {
+          this.closeSudokuOverlay();
+        } else {
+          this.openSudokuOverlay();
+        }
+      });
+    }
+
+    if (this.closeSudokuOverlayBtn) {
+      this.closeSudokuOverlayBtn.addEventListener('click', () => {
+        this.closeSudokuOverlay();
+      });
+    }
+
+    if (this.sudokuOverlay) {
+      this.sudokuOverlay.addEventListener('click', (event) => {
+        if (event.target === this.sudokuOverlay) {
+          this.closeSudokuOverlay();
+        }
+      });
+      this.sudokuOverlay.addEventListener('keydown', this.handleSudokuOverlayKeydown);
+    }
+
+    if (this.sudokuBoard) {
+      this.sudokuBoard.addEventListener('click', this.handleSudokuBoardClick);
+    }
+
+    if (this.sudokuKeypad) {
+      this.sudokuKeypad.addEventListener('click', this.handleSudokuKeypadClick);
+    }
+
+    if (this.sudokuHintBtn) {
+      this.sudokuHintBtn.addEventListener('click', () => {
+        this.handleSudokuHint();
+      });
+    }
+
+    if (this.sudokuCheckBtn) {
+      this.sudokuCheckBtn.addEventListener('click', () => {
+        this.checkSudokuBoard();
+      });
+    }
+
+    if (this.sudokuNewBtn) {
+      this.sudokuNewBtn.addEventListener('click', () => {
+        this.handleSudokuNewPuzzle();
+      });
+    }
+
+    this.loadSudokuPuzzle({ announce: true });
+    this.updateSudokuButtonAttention();
+  }
+
+  loadSudokuPuzzle({ announce = false } = {}) {
+    const state = this.sudoku;
+    if (!state || !Array.isArray(state.puzzles) || state.puzzles.length === 0) {
+      return;
+    }
+
+    const available = state.puzzles.filter((entry) => entry.id !== (state.currentPuzzle ? state.currentPuzzle.id : null));
+    const pool = available.length > 0 ? available : state.puzzles;
+    const next = pool[Math.floor(Math.random() * pool.length)];
+
+    state.currentPuzzle = next;
+    state.cells = next.puzzle.split('').map((char) => Number(char) || 0);
+    state.solution = next.solution.split('').map((char) => Number(char) || 0);
+    state.givens = new Set();
+    state.errors = new Set();
+    state.conflicts = new Set();
+    state.selectedIndex = null;
+    state.completed = false;
+    state.waitingPrompt = this.waitingForOpponent;
+
+    state.cells.forEach((value, index) => {
+      if (value) {
+        state.givens.add(index);
+      }
+    });
+
+    this.recalculateSudokuConflicts();
+    this.refreshSudokuCells();
+    if (announce) {
+      this.setSudokuInfo('Select a cell to begin. Waiting for an opponent? Keep your mind sharp here.');
+    }
+  }
+
+  renderSudokuBoard() {
+    const state = this.sudoku;
+    if (!state || !this.sudokuBoard) {
+      return;
+    }
+
+    this.sudokuBoard.innerHTML = '';
+    state.cellMap = new Map();
+
+    for (let index = 0; index < 81; index += 1) {
+      const cell = document.createElement('button');
+      cell.type = 'button';
+      cell.className = 'sudoku-cell';
+      cell.dataset.index = String(index);
+
+      const row = Math.floor(index / 9);
+      const col = index % 9;
+
+      if (col % 3 === 0 && col !== 0) {
+        cell.dataset.subgridLeft = 'true';
+      }
+      if (col % 3 === 2 && col !== 8) {
+        cell.dataset.subgridRight = 'true';
+      }
+      if (row % 3 === 0 && row !== 0) {
+        cell.dataset.subgridTop = 'true';
+      }
+      if (row % 3 === 2 && row !== 8) {
+        cell.dataset.subgridBottom = 'true';
+      }
+
+      cell.setAttribute('aria-label', `Row ${row + 1}, column ${col + 1}`);
+
+      state.cellMap.set(index, cell);
+      this.sudokuBoard.appendChild(cell);
+    }
+  }
+
+  renderSudokuKeypad() {
+    if (!this.sudokuKeypad) {
+      return;
+    }
+    this.sudokuKeypad.innerHTML = '';
+    for (let value = 1; value <= 9; value += 1) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = String(value);
+      button.dataset.value = String(value);
+      this.sudokuKeypad.appendChild(button);
+    }
+    const clearBtn = document.createElement('button');
+    clearBtn.type = 'button';
+    clearBtn.textContent = 'Clear';
+    clearBtn.dataset.value = 'clear';
+    this.sudokuKeypad.appendChild(clearBtn);
+  }
+
+  refreshSudokuCells() {
+    const state = this.sudoku;
+    if (!state || !state.cellMap) {
+      return;
+    }
+    state.cellMap.forEach((cell, index) => {
+      const value = state.cells[index];
+      cell.textContent = value ? String(value) : '';
+      cell.classList.toggle('fixed', state.givens.has(index));
+      cell.classList.toggle('selected', state.selectedIndex === index);
+      cell.classList.toggle('error', state.errors.has(index));
+      cell.classList.toggle('conflict', state.conflicts.has(index));
+    });
+  }
+
+  selectSudokuCell(index) {
+    const state = this.sudoku;
+    if (!state || !state.cellMap.has(index)) {
+      return;
+    }
+
+    if (state.givens.has(index)) {
+      state.selectedIndex = null;
+      this.setSudokuInfo('That coordinate is locked by command. Pick another cell.');
+      this.refreshSudokuCells();
+      return;
+    }
+
+    state.selectedIndex = index;
+    this.clearSudokuErrorsFor(index);
+    this.setSudokuInfo('Cell selected. Use the keypad or your keyboard to fill it.');
+    this.refreshSudokuCells();
+    const cell = state.cellMap.get(index);
+    if (cell) {
+      cell.focus({ preventScroll: false });
+    }
+  }
+
+  applySudokuValue(value) {
+    const state = this.sudoku;
+    if (!state || state.selectedIndex === null) {
+      this.setSudokuInfo('Select a cell before entering a value.');
+      return;
+    }
+
+    this.setSudokuCellValue(state.selectedIndex, value);
+    if (value === null || value === 0) {
+      this.setSudokuInfo('Cell cleared.');
+    } else {
+      this.setSudokuInfo(`Placed ${value}. Keep scanning the grid.`);
+    }
+  }
+
+  setSudokuCellValue(index, value) {
+    const state = this.sudoku;
+    if (!state || state.givens.has(index)) {
+      return;
+    }
+
+    const normalized = Number(value) || 0;
+    if (!Array.isArray(state.cells)) {
+      state.cells = Array(81).fill(0);
+    }
+    state.cells[index] = normalized;
+    state.errors.delete(index);
+    state.completed = false;
+
+    this.recalculateSudokuConflicts();
+    this.refreshSudokuCells();
+    this.checkSudokuSolved();
+  }
+
+  recalculateSudokuConflicts() {
+    const state = this.sudoku;
+    if (!state) {
+      return;
+    }
+
+    const conflicts = new Set();
+
+    const registerConflicts = (indices) => {
+      if (indices.length <= 1) {
+        return;
+      }
+      indices.forEach((idx) => conflicts.add(idx));
+    };
+
+    for (let row = 0; row < 9; row += 1) {
+      const seen = new Map();
+      for (let col = 0; col < 9; col += 1) {
+        const idx = row * 9 + col;
+        const value = state.cells[idx];
+        if (!value) {
+          continue;
+        }
+        const bucket = seen.get(value) || [];
+        bucket.push(idx);
+        seen.set(value, bucket);
+      }
+      seen.forEach(registerConflicts);
+    }
+
+    for (let col = 0; col < 9; col += 1) {
+      const seen = new Map();
+      for (let row = 0; row < 9; row += 1) {
+        const idx = row * 9 + col;
+        const value = state.cells[idx];
+        if (!value) {
+          continue;
+        }
+        const bucket = seen.get(value) || [];
+        bucket.push(idx);
+        seen.set(value, bucket);
+      }
+      seen.forEach(registerConflicts);
+    }
+
+    for (let blockRow = 0; blockRow < 9; blockRow += 3) {
+      for (let blockCol = 0; blockCol < 9; blockCol += 3) {
+        const seen = new Map();
+        for (let row = blockRow; row < blockRow + 3; row += 1) {
+          for (let col = blockCol; col < blockCol + 3; col += 1) {
+            const idx = row * 9 + col;
+            const value = state.cells[idx];
+            if (!value) {
+              continue;
+            }
+            const bucket = seen.get(value) || [];
+            bucket.push(idx);
+            seen.set(value, bucket);
+          }
+        }
+        seen.forEach(registerConflicts);
+      }
+    }
+
+    state.conflicts = conflicts;
+  }
+
+  checkSudokuBoard() {
+    const state = this.sudoku;
+    if (!state) {
+      return;
+    }
+
+    const incorrect = [];
+    state.cells.forEach((value, index) => {
+      if (!value) {
+        return;
+      }
+      if (value !== state.solution[index]) {
+        incorrect.push(index);
+      }
+    });
+
+    state.errors = new Set(incorrect);
+    this.recalculateSudokuConflicts();
+    this.refreshSudokuCells();
+
+    if (incorrect.length === 0) {
+      if (this.checkSudokuSolved()) {
+        return;
+      }
+      this.setSudokuInfo('Looks good so far. All current entries align with the solution.');
+    } else {
+      const label = incorrect.length === 1 ? 'entry' : 'entries';
+      this.setSudokuInfo(`${incorrect.length} incorrect ${label} flagged. Adjust and try again.`);
+    }
+  }
+
+  clearSudokuErrors() {
+    const state = this.sudoku;
+    if (!state) {
+      return;
+    }
+    state.errors.clear();
+    this.refreshSudokuCells();
+  }
+
+  clearSudokuErrorsFor(index) {
+    const state = this.sudoku;
+    if (!state || !state.errors) {
+      return;
+    }
+    if (state.errors.delete(index)) {
+      this.refreshSudokuCells();
+    }
+  }
+
+  handleSudokuHint() {
+    const state = this.sudoku;
+    if (!state) {
+      return;
+    }
+    const candidates = [];
+    state.cells.forEach((value, index) => {
+      if (!value && !state.givens.has(index)) {
+        candidates.push(index);
+      }
+    });
+    if (candidates.length === 0) {
+      this.setSudokuInfo('No empty cells available for a hint. Finish the remaining verifications.');
+      return;
+    }
+    const index = candidates[Math.floor(Math.random() * candidates.length)];
+    const correctValue = state.solution[index];
+    state.selectedIndex = index;
+    this.setSudokuCellValue(index, correctValue);
+    this.refreshSudokuCells();
+    this.setSudokuInfo('Hint deployed. The filled value is guaranteed correct.');
+  }
+
+  handleSudokuNewPuzzle() {
+    this.loadSudokuPuzzle({ announce: false });
+    this.setSudokuInfo('Fresh puzzle deployed. Keep the crew sharp while you wait.');
+    this.updateSudokuButtonAttention();
+  }
+
+  openSudokuOverlay() {
+    const state = this.sudoku;
+    if (!state || !this.sudokuOverlay) {
+      return;
+    }
+    this.sudokuOverlay.hidden = false;
+    state.open = true;
+    if (this.sudokuBtn) {
+      this.sudokuBtn.setAttribute('aria-pressed', 'true');
+    }
+    if (this.sudokuOverlay) {
+      this.sudokuOverlay.focus();
+    }
+    if (state.waitingPrompt && this.waitingForOpponent) {
+      this.setSudokuInfo('Opponent not ready yet. Keep solving while the fleets gather.');
+      state.waitingPrompt = false;
+    } else {
+      this.setSudokuInfo(state.info || 'Select a cell to begin.');
+    }
+    this.updateSudokuButtonAttention();
+  }
+
+  closeSudokuOverlay(options = {}) {
+    const state = this.sudoku;
+    if (!state || !this.sudokuOverlay) {
+      return;
+    }
+    const { silent = false } = options;
+    this.sudokuOverlay.hidden = true;
+    state.open = false;
+    if (this.sudokuBtn) {
+      this.sudokuBtn.setAttribute('aria-pressed', 'false');
+    }
+    if (!silent && !state.completed) {
+      state.info = state.info || 'Select a cell to begin.';
+    }
+    this.updateSudokuButtonAttention();
+  }
+
+  setSudokuInfo(message) {
+    const state = this.sudoku;
+    if (state) {
+      state.info = message;
+    }
+    if (this.sudokuInfo) {
+      this.sudokuInfo.textContent = message || '';
+    }
+  }
+
+  checkSudokuSolved() {
+    const state = this.sudoku;
+    if (!state) {
+      return false;
+    }
+    const solved = state.cells.every((value, index) => value && value === state.solution[index]);
+    if (!solved) {
+      return false;
+    }
+    if (!state.completed) {
+      state.completed = true;
+      this.setSudokuInfo('Puzzle solved! You are battle-ready and mentally sharp.');
+      this.addLog('Sudoku puzzle solved while waiting for the next engagement.', 'success');
+      if (this.audio) {
+        this.audio.playSfx('victory');
+      }
+    }
+    this.updateSudokuButtonAttention();
+    return true;
+  }
+
+  handleSudokuKeypadClick(event) {
+    const target = event.target;
+    if (!(target instanceof Element)) {
+      return;
+    }
+    const button = target.closest('button[data-value]');
+    if (!button) {
+      return;
+    }
+    const { value } = button.dataset;
+    if (value === 'clear') {
+      this.applySudokuValue(null);
+      return;
+    }
+    const digit = Number(value);
+    if (!Number.isNaN(digit) && digit >= 1 && digit <= 9) {
+      this.applySudokuValue(digit);
+    }
+  }
+
+  handleSudokuBoardClick(event) {
+    const target = event.target;
+    if (!(target instanceof Element)) {
+      return;
+    }
+    const cell = target.closest('.sudoku-cell');
+    if (!cell || !this.sudokuBoard || !this.sudokuBoard.contains(cell)) {
+      return;
+    }
+    const index = Number(cell.dataset.index);
+    if (!Number.isInteger(index)) {
+      return;
+    }
+    this.selectSudokuCell(index);
+  }
+
+  handleSudokuOverlayKeydown(event) {
+    if (!this.sudoku || !this.sudoku.open) {
+      return;
+    }
+    if (/^[1-9]$/.test(event.key)) {
+      this.applySudokuValue(Number(event.key));
+      event.preventDefault();
+      return;
+    }
+    if (event.key === 'Backspace' || event.key === 'Delete' || event.key === '0' || event.key === ' ') {
+      this.applySudokuValue(null);
+      event.preventDefault();
+      return;
+    }
+    if (event.key === 'Escape') {
+      this.closeSudokuOverlay();
+    }
+  }
+
+  updateSudokuButtonAttention() {
+    if (!this.sudokuBtn || !this.sudoku) {
+      return;
+    }
+    const highlight = this.mode === 'pvp' && !this.gameEnded && this.waitingForOpponent && !this.sudoku.completed;
+    this.sudokuBtn.classList.toggle('attention', highlight);
+  }
+
+  setWaitingForOpponent(waiting) {
+    const previous = this.waitingForOpponent;
+    this.waitingForOpponent = waiting;
+    if (this.sudoku) {
+      if (waiting) {
+        this.sudoku.waitingPrompt = true;
+      } else if (previous && this.sudoku.open && !this.sudoku.completed) {
+        this.setSudokuInfo('Opponent ready! Finish up or close the puzzle when you are set.');
+        this.sudoku.waitingPrompt = false;
+      } else {
+        this.sudoku.waitingPrompt = false;
+      }
+    }
+    this.updateSudokuButtonAttention();
+  }
+
   bindElements() {
     this.statusLine = this.shadowRoot.querySelector('#statusLine');
     this.placementBadge = this.shadowRoot.querySelector('#placementBadge');
@@ -1808,15 +2551,24 @@ class GameApp extends HTMLElement {
     this.createRoomForm = this.shadowRoot.querySelector('#createRoomForm');
     this.roomNameInput = this.shadowRoot.querySelector('#roomNameInput');
     this.refreshRoomsBtn = this.shadowRoot.querySelector('#refreshRoomsBtn');
-  this.musicLabBtn = this.shadowRoot.querySelector('#musicLabBtn');
-  this.musicOverlay = this.shadowRoot.querySelector('#musicOverlay');
-  this.musicGrid = this.shadowRoot.querySelector('#musicGrid');
-  this.musicPlayBtn = this.shadowRoot.querySelector('#musicPlayBtn');
-  this.musicStopBtn = this.shadowRoot.querySelector('#musicStopBtn');
-  this.musicRandomBtn = this.shadowRoot.querySelector('#musicRandomBtn');
-  this.musicClearBtn = this.shadowRoot.querySelector('#musicClearBtn');
-  this.musicInfo = this.shadowRoot.querySelector('#musicInfo');
-  this.closeMusicOverlayBtn = this.shadowRoot.querySelector('#closeMusicOverlayBtn');
+    this.sudokuBtn = this.shadowRoot.querySelector('#sudokuBtn');
+    this.sudokuOverlay = this.shadowRoot.querySelector('#sudokuOverlay');
+    this.closeSudokuOverlayBtn = this.shadowRoot.querySelector('#closeSudokuOverlayBtn');
+    this.sudokuBoard = this.shadowRoot.querySelector('#sudokuBoard');
+    this.sudokuKeypad = this.shadowRoot.querySelector('#sudokuKeypad');
+    this.sudokuHintBtn = this.shadowRoot.querySelector('#sudokuHintBtn');
+    this.sudokuCheckBtn = this.shadowRoot.querySelector('#sudokuCheckBtn');
+    this.sudokuNewBtn = this.shadowRoot.querySelector('#sudokuNewBtn');
+    this.sudokuInfo = this.shadowRoot.querySelector('#sudokuInfo');
+    this.musicLabBtn = this.shadowRoot.querySelector('#musicLabBtn');
+    this.musicOverlay = this.shadowRoot.querySelector('#musicOverlay');
+    this.musicGrid = this.shadowRoot.querySelector('#musicGrid');
+    this.musicPlayBtn = this.shadowRoot.querySelector('#musicPlayBtn');
+    this.musicStopBtn = this.shadowRoot.querySelector('#musicStopBtn');
+    this.musicRandomBtn = this.shadowRoot.querySelector('#musicRandomBtn');
+    this.musicClearBtn = this.shadowRoot.querySelector('#musicClearBtn');
+    this.musicInfo = this.shadowRoot.querySelector('#musicInfo');
+    this.closeMusicOverlayBtn = this.shadowRoot.querySelector('#closeMusicOverlayBtn');
 
     this.targetGrid.setInteractive(false);
     this.ownGrid.setInteractive(true);
@@ -1963,6 +2715,7 @@ class GameApp extends HTMLElement {
     this.updateLobbyInfo();
     this.refreshLobbyControls();
 
+    this.setupSudokuInterface();
     this.setupMusicLabInterface();
   }
 
@@ -2020,7 +2773,7 @@ class GameApp extends HTMLElement {
       return;
     }
     if (!this.currentRoom) {
-      this.waitingForOpponent = false;
+      this.setWaitingForOpponent(false);
       this.showLobbyOverlay();
       this.requestLobbyRooms();
     }
@@ -2195,6 +2948,7 @@ class GameApp extends HTMLElement {
   resetBaseState() {
     this.clearLocalTimers();
     this.shutdownMusicLab();
+    this.shutdownSudoku();
     if (this.ws) {
       try {
         this.ws.close();
@@ -2231,7 +2985,7 @@ class GameApp extends HTMLElement {
     this.logPanel.innerHTML = '';
     this.currentRoom = null;
     this.lobbyRooms = [];
-    this.waitingForOpponent = false;
+  this.setWaitingForOpponent(false);
     this.hideLobbyOverlay();
     this.renderLobbyRooms();
     this.updateLobbyInfo();
@@ -2246,7 +3000,7 @@ class GameApp extends HTMLElement {
     this.addLog('Online PvP mode selected. Connecting to server...', 'info');
     this.state = 'lobby';
     this.currentRoom = null;
-    this.waitingForOpponent = false;
+    this.setWaitingForOpponent(false);
     this.turnInfo.textContent = 'Connecting to the lobby...';
     this.enterLobby();
     this.connect();
@@ -2575,7 +3329,7 @@ class GameApp extends HTMLElement {
       this.ownGrid.setInteractive(false);
       this.targetGrid.setInteractive(false);
       this.currentRoom = null;
-      this.waitingForOpponent = false;
+  this.setWaitingForOpponent(false);
       this.lobbyRooms = [];
       this.renderLobbyRooms();
       if (this.mode === 'pvp') {
@@ -2607,12 +3361,13 @@ class GameApp extends HTMLElement {
         };
         const occupants = typeof payload.occupants === 'number' ? payload.occupants : 1;
         const capacity = payload.capacity || 2;
-        this.waitingForOpponent = occupants < capacity;
+        const waiting = occupants < capacity;
+        this.setWaitingForOpponent(waiting);
         const logMessage = payload.created
           ? `Room "${this.currentRoom.name}" deployed. Waiting for an opponent.`
-          : `Joined room "${this.currentRoom.name}"${this.waitingForOpponent ? '. Awaiting opponent...' : '.'}`;
+          : `Joined room "${this.currentRoom.name}"${waiting ? '. Awaiting opponent...' : '.'}`;
         this.addLog(logMessage, 'info');
-        if (this.waitingForOpponent) {
+        if (waiting) {
           this.turnInfo.textContent = 'Room ready. Waiting for an opponent to join.';
         }
         this.hideLobbyOverlay();
@@ -2626,7 +3381,7 @@ class GameApp extends HTMLElement {
           this.addLog('You left the room.', 'info');
         }
         this.currentRoom = null;
-        this.waitingForOpponent = false;
+        this.setWaitingForOpponent(false);
         this.showLobbyOverlay();
         this.requestLobbyRooms();
         this.refreshLobbyControls();
@@ -2642,7 +3397,7 @@ class GameApp extends HTMLElement {
           this.addLog('A lobby room was closed.', 'info');
         }
         this.currentRoom = null;
-        this.waitingForOpponent = false;
+        this.setWaitingForOpponent(false);
         this.showLobbyOverlay();
         this.requestLobbyRooms();
         this.refreshLobbyControls();
@@ -2660,9 +3415,9 @@ class GameApp extends HTMLElement {
         this.playerNumber = payload.player;
         this.state = 'placement';
         this.currentRoom = null;
-        this.waitingForOpponent = false;
-  this.lobbyRooms = [];
-  this.renderLobbyRooms();
+        this.setWaitingForOpponent(false);
+        this.lobbyRooms = [];
+        this.renderLobbyRooms();
         this.hideLobbyOverlay();
         this.refreshLobbyControls();
         this.turnInfo.textContent = 'Deploy your fleet and lock it in.';
@@ -2672,7 +3427,7 @@ class GameApp extends HTMLElement {
       case 'waitingForOpponent':
         this.addLog('Awaiting an opponent...', 'info');
         this.opponentBadge.textContent = 'Waiting';
-        this.waitingForOpponent = true;
+        this.setWaitingForOpponent(true);
         if (this.mode === 'pvp') {
           this.turnInfo.textContent = 'Awaiting an opponent to join your room.';
         }
@@ -2687,7 +3442,7 @@ class GameApp extends HTMLElement {
         this.opponentConnected = true;
         this.opponentBadge.textContent = 'Opponent ready to place';
         this.addLog('Opponent joined the arena. Place your fleet!', 'success');
-        this.waitingForOpponent = false;
+        this.setWaitingForOpponent(false);
         this.hideLobbyOverlay();
         this.refreshLobbyControls();
         if (this.audio) {
@@ -2753,7 +3508,7 @@ class GameApp extends HTMLElement {
         this.shotsTaken.clear();
         this.targetGrid.reset();
         this.currentRoom = null;
-        this.waitingForOpponent = false;
+  this.setWaitingForOpponent(false);
         this.hideLobbyOverlay();
         this.refreshLobbyControls();
         if (payload.youStart) {
@@ -2789,7 +3544,7 @@ class GameApp extends HTMLElement {
       case 'opponentLeft':
         this.handleGameOver('win', 'Opponent disconnected.');
         this.currentRoom = null;
-        this.waitingForOpponent = false;
+        this.setWaitingForOpponent(false);
         this.showLobbyOverlay();
         this.requestLobbyRooms();
         this.refreshLobbyControls();
@@ -3169,6 +3924,7 @@ class GameApp extends HTMLElement {
       this.refreshLobbyControls();
       this.updateLobbyInfo();
     }
+    this.updateSudokuButtonAttention();
   }
 
   updateHint() {
