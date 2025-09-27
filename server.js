@@ -281,6 +281,8 @@ class Player {
     this.name = `Player-${Math.random().toString(16).slice(2, 6)}`;
     this.roomId = null;
     this.isRoomHost = false;
+    this.chatScope = 'lobby';
+    this.chatId = 'lobby';
   }
 
   send(type, payload = {}) {
@@ -491,6 +493,10 @@ class GameManager {
     this.rooms = new Map();
     this.games = new Set();
     this.lobbyMusic = null;
+    this.chatHistory = new Map();
+    this.chatMetadata = new Map();
+    this.chatHistoryLimit = 80;
+    this.ensureChatChannel('lobby', { name: 'Lobby Comms' });
   }
 
   addConnection(connection) {
@@ -505,8 +511,172 @@ class GameManager {
     });
 
     player.send('playerAssignment', { player: null });
+    this.setPlayerChatContext(player, 'lobby');
     this.sendLobbySnapshot(player);
     this.sendLobbyMusicSnapshot(player);
+  }
+
+  ensureChatChannel(channelId, meta = {}) {
+    if (!channelId) {
+      return;
+    }
+    if (!this.chatHistory.has(channelId)) {
+      this.chatHistory.set(channelId, []);
+    }
+    if (meta && typeof meta.name === 'string') {
+      this.chatMetadata.set(channelId, { name: meta.name, updated: Date.now() });
+    } else if (!this.chatMetadata.has(channelId)) {
+      this.chatMetadata.set(channelId, { name: '', updated: Date.now() });
+    }
+  }
+
+  appendChatMessage(channelId, message) {
+    if (!channelId || !message) {
+      return;
+    }
+    this.ensureChatChannel(channelId);
+    const history = this.chatHistory.get(channelId);
+    history.push(message);
+    if (history.length > this.chatHistoryLimit) {
+      history.splice(0, history.length - this.chatHistoryLimit);
+    }
+  }
+
+  sendChatHistory(player, channelId) {
+    if (!player || !channelId) {
+      return;
+    }
+    this.ensureChatChannel(channelId);
+    const history = this.chatHistory.get(channelId) || [];
+    const messages = history.slice(-this.chatHistoryLimit);
+    if (channelId === 'lobby') {
+      player.send('chatHistory', { scope: 'lobby', messages });
+      return;
+    }
+    const meta = this.chatMetadata.get(channelId) || {};
+    player.send('chatHistory', {
+      scope: 'room',
+      roomId: channelId,
+      roomName: meta.name || '',
+      messages,
+    });
+  }
+
+  setPlayerChatContext(player, scope, context = {}) {
+    if (!player) {
+      return;
+    }
+    if (scope !== 'room') {
+      player.chatScope = 'lobby';
+      player.chatId = 'lobby';
+      player.send('chatContext', { scope: 'lobby' });
+      this.sendChatHistory(player, 'lobby');
+      return;
+    }
+
+    const roomId = context.roomId || player.chatId;
+    if (!roomId) {
+      player.chatScope = 'lobby';
+      player.chatId = 'lobby';
+      player.send('chatContext', { scope: 'lobby' });
+      this.sendChatHistory(player, 'lobby');
+      return;
+    }
+
+    this.ensureChatChannel(roomId, { name: context.roomName });
+    player.chatScope = 'room';
+    player.chatId = roomId;
+    player.send('chatContext', {
+      scope: 'room',
+      roomId,
+      roomName: context.roomName || this.chatMetadata.get(roomId)?.name || '',
+    });
+    this.sendChatHistory(player, roomId);
+  }
+
+  resolveRoomChatRecipients(player) {
+    if (!player) {
+      return { recipients: null, channelId: null, channelName: null };
+    }
+
+    if (player.roomId) {
+      const room = this.rooms.get(player.roomId);
+      if (!room) {
+        return { recipients: null, channelId: null, channelName: null };
+      }
+      this.ensureChatChannel(room.id, { name: room.name });
+      return { recipients: [...room.players], channelId: room.id, channelName: room.name };
+    }
+
+    if (player.game) {
+      const game = player.game;
+      if (!game.chatId) {
+        const generatedId = `match-${Date.now().toString(16)}-${Math.random().toString(16).slice(2, 6)}`;
+        game.chatId = generatedId;
+        game.chatName = game.chatName || `Match ${generatedId.slice(-4)}`;
+      }
+      this.ensureChatChannel(game.chatId, { name: game.chatName });
+      return {
+        recipients: game.players.filter(Boolean),
+        channelId: game.chatId,
+        channelName: game.chatName,
+      };
+    }
+
+    return { recipients: null, channelId: null, channelName: null };
+  }
+
+  handleChatSend(player, payload) {
+    if (!player || !payload) {
+      return;
+    }
+
+    const scope = payload.scope === 'room' ? 'room' : 'lobby';
+    const rawMessage = typeof payload.message === 'string' ? payload.message : '';
+    const trimmed = rawMessage.replace(/\s+/g, ' ').trim();
+
+    if (!trimmed) {
+      player.send('chatError', { message: 'Message cannot be empty.' });
+      return;
+    }
+
+    const text = trimmed.length > 280 ? trimmed.slice(0, 280).trim() : trimmed;
+    const timestamp = Date.now();
+    const id = typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `msg-${timestamp.toString(16)}-${Math.random().toString(16).slice(2, 8)}`;
+
+    const message = {
+      id,
+      author: player.name,
+      text,
+      timestamp,
+    };
+
+    if (scope === 'lobby') {
+      if (player.roomId || player.game) {
+        player.send('chatError', { message: 'Switch to room chat to reach your opponent.' });
+        return;
+      }
+      this.appendChatMessage('lobby', message);
+      this.players.forEach((recipient) => {
+        if (!recipient.roomId && !recipient.game) {
+          recipient.send('chatMessage', { scope: 'lobby', message });
+        }
+      });
+      return;
+    }
+
+    const { recipients, channelId } = this.resolveRoomChatRecipients(player);
+    if (!recipients || !channelId || recipients.length === 0) {
+      player.send('chatError', { message: 'Room chat is not available right now.' });
+      return;
+    }
+
+    this.appendChatMessage(channelId, message);
+    recipients.forEach((recipient) => {
+      recipient.send('chatMessage', { scope: 'room', roomId: channelId, message });
+    });
   }
 
   handleMessage(player, rawMessage) {
@@ -576,6 +746,9 @@ class GameManager {
       case 'musicLabShare':
         this.handleMusicLabShare(player, payload);
         break;
+      case 'chatSend':
+        this.handleChatSend(player, payload);
+        break;
       default:
         player.send('error', { message: 'Unknown message type.' });
     }
@@ -588,7 +761,7 @@ class GameManager {
     }
 
     if (player.roomId) {
-      this.leaveRoom(player, { silent: true });
+      this.leaveRoom(player, { silent: true, skipChatReset: true });
     }
 
     const name = typeof rawName === 'string' ? rawName.trim().slice(0, 48) : '';
@@ -602,6 +775,7 @@ class GameManager {
     };
 
     this.rooms.set(roomId, room);
+    this.ensureChatChannel(roomId, { name: roomName });
     this.joinRoom(player, roomId, { createdRoom: true });
   }
 
@@ -640,12 +814,13 @@ class GameManager {
     }
 
     if (player.roomId && player.roomId !== roomId) {
-      this.leaveRoom(player, { silent: true });
+      this.leaveRoom(player, { silent: true, skipChatReset: true });
     }
 
     room.players.push(player);
     player.roomId = room.id;
     player.isRoomHost = room.players.length === 1;
+    this.ensureChatChannel(room.id, { name: room.name });
 
     player.send('roomJoined', {
       roomId: room.id,
@@ -654,6 +829,7 @@ class GameManager {
       isHost: player.isRoomHost,
       created: !!options.createdRoom,
     });
+    this.setPlayerChatContext(player, 'room', { roomId: room.id, roomName: room.name });
 
     if (room.players.length === 1) {
       player.send('waitingForOpponent', {});
@@ -680,6 +856,9 @@ class GameManager {
       if (!options.silent) {
         player.send('roomLeft', { roomId });
       }
+      if (!options.skipChatReset) {
+        this.setPlayerChatContext(player, 'lobby');
+      }
       this.sendLobbyUpdate();
       return;
     }
@@ -692,14 +871,23 @@ class GameManager {
 
     if (room.players.length === 0) {
       this.rooms.delete(roomId);
+      this.chatHistory.delete(roomId);
+      this.chatMetadata.delete(roomId);
     } else {
       const remainingPlayers = [...room.players];
       this.rooms.delete(roomId);
+      this.chatHistory.delete(roomId);
+      this.chatMetadata.delete(roomId);
       remainingPlayers.forEach((p) => {
         p.roomId = null;
         p.isRoomHost = false;
         p.send('roomClosed', { roomId });
+        this.setPlayerChatContext(p, 'lobby');
       });
+    }
+
+    if (!options.skipChatReset) {
+      this.setPlayerChatContext(player, 'lobby');
     }
 
     this.sendLobbyUpdate();
@@ -715,12 +903,18 @@ class GameManager {
     playerB.isRoomHost = false;
 
     const game = new Game(playerA, playerB);
+    game.chatId = room.id;
+    game.chatName = room.name;
+    this.ensureChatChannel(game.chatId, { name: room.name });
     this.games.add(game);
 
     playerA.send('playerAssignment', { player: 1 });
     playerB.send('playerAssignment', { player: 2 });
     playerA.send('opponentJoined', {});
     playerB.send('opponentJoined', {});
+
+    this.setPlayerChatContext(playerA, 'room', { roomId: game.chatId, roomName: room.name });
+    this.setPlayerChatContext(playerB, 'room', { roomId: game.chatId, roomName: room.name });
 
     this.sendLobbyUpdate();
   }
@@ -856,7 +1050,7 @@ class GameManager {
   }
 
   handleDisconnect(player) {
-    this.leaveRoom(player, { silent: true });
+    this.leaveRoom(player, { silent: true, skipChatReset: true });
 
     if (player.game) {
       const game = player.game;

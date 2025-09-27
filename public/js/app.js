@@ -1477,6 +1477,7 @@ class GameApp extends HTMLElement {
     this.waitingForOpponent = false;
     this.musicLab = this.createMusicLabState();
     this.sudoku = this.createSudokuState();
+  this.chat = this.createChatState();
     this.handleSudokuKeypadClick = this.handleSudokuKeypadClick.bind(this);
     this.handleSudokuBoardClick = this.handleSudokuBoardClick.bind(this);
     this.handleSudokuOverlayKeydown = this.handleSudokuOverlayKeydown.bind(this);
@@ -1788,6 +1789,149 @@ class GameApp extends HTMLElement {
           border-radius: 8px;
           background: rgba(20, 30, 48, 0.45);
           border-left: 3px solid rgba(78, 220, 255, 0.4);
+        }
+        .chat-panel {
+          position: fixed;
+          right: 28px;
+          bottom: 28px;
+          width: min(320px, calc(100vw - 36px));
+          background: rgba(12, 22, 38, 0.92);
+          border-radius: 18px;
+          padding: 16px;
+          display: grid;
+          grid-template-rows: auto 1fr auto;
+          gap: 12px;
+          box-shadow: 0 18px 44px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(78, 220, 255, 0.14);
+          z-index: 980;
+        }
+        .chat-panel[hidden] {
+          display: none;
+        }
+        .chat-panel.collapsed {
+          grid-template-rows: auto;
+          padding-bottom: 12px;
+        }
+        .chat-panel.collapsed .chat-messages,
+        .chat-panel.collapsed .chat-form {
+          display: none;
+        }
+        .chat-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 10px;
+        }
+        .chat-title-group {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+        .chat-title-group h3 {
+          margin: 0;
+          font-size: 15px;
+          letter-spacing: 0.3px;
+        }
+        .chat-subtitle {
+          font-size: 12px;
+          color: var(--text-secondary);
+        }
+        .chat-header-actions {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+        .chat-status-dot {
+          width: 10px;
+          height: 10px;
+          border-radius: 50%;
+          background: rgba(79, 255, 171, 0.7);
+          box-shadow: 0 0 10px rgba(79, 255, 171, 0.4);
+        }
+        .chat-status-dot.offline {
+          background: rgba(255, 103, 133, 0.7);
+          box-shadow: 0 0 10px rgba(255, 103, 133, 0.4);
+        }
+        .chat-status-dot.idle {
+          background: rgba(255, 193, 84, 0.75);
+          box-shadow: 0 0 10px rgba(255, 193, 84, 0.45);
+        }
+        #chatToggleBtn {
+          padding: 6px 10px;
+          border-radius: 10px;
+          background: rgba(20, 34, 56, 0.85);
+          border: 1px solid rgba(78, 220, 255, 0.2);
+          font-size: 13px;
+          min-width: 0;
+        }
+        .chat-messages {
+          max-height: 260px;
+          overflow-y: auto;
+          display: grid;
+          gap: 8px;
+          padding-right: 4px;
+        }
+        .chat-messages::-webkit-scrollbar {
+          width: 6px;
+        }
+        .chat-messages::-webkit-scrollbar-thumb {
+          background: rgba(78, 220, 255, 0.28);
+          border-radius: 8px;
+        }
+        .chat-message {
+          display: grid;
+          gap: 4px;
+          font-size: 13px;
+          padding: 8px 10px;
+          border-radius: 12px;
+          background: rgba(16, 28, 46, 0.72);
+          border-left: 3px solid rgba(78, 220, 255, 0.38);
+        }
+        .chat-meta {
+          display: flex;
+          justify-content: space-between;
+          gap: 10px;
+          font-size: 11px;
+          letter-spacing: 0.4px;
+          color: rgba(200, 219, 255, 0.6);
+          text-transform: uppercase;
+        }
+        .chat-author {
+          font-weight: 600;
+          color: rgba(255, 255, 255, 0.85);
+        }
+        .chat-text {
+          color: rgba(233, 242, 255, 0.92);
+          word-break: break-word;
+        }
+        .chat-form {
+          display: flex;
+          gap: 8px;
+          align-items: center;
+        }
+        .chat-form input {
+          flex: 1;
+          padding: 10px 12px;
+          border-radius: 10px;
+          border: 1px solid rgba(78, 220, 255, 0.24);
+          background: rgba(8, 16, 28, 0.85);
+          color: var(--text-primary);
+          font-size: 13px;
+        }
+        .chat-form input:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+        .chat-form button {
+          min-width: 68px;
+          padding: 9px 14px;
+        }
+        @media (max-width: 640px) {
+          .chat-panel {
+            left: 16px;
+            right: 16px;
+            width: auto;
+            bottom: 16px;
+          }
         }
         .log-entry.win {
           border-left-color: rgba(79, 255, 171, 0.6);
@@ -2228,6 +2372,23 @@ class GameApp extends HTMLElement {
           </div>
           <div class="log" id="logPanel"></div>
         </section>
+        <aside class="chat-panel" id="chatPanel" hidden>
+          <div class="chat-header">
+            <div class="chat-title-group">
+              <h3 id="chatTitle">Lobby Comms</h3>
+              <span class="chat-subtitle" id="chatSubtitle">Chat with commanders in the lobby.</span>
+            </div>
+            <div class="chat-header-actions">
+              <span class="chat-status-dot offline" id="chatStatusDot" aria-hidden="true"></span>
+              <button type="button" id="chatToggleBtn" aria-expanded="true" aria-label="Collapse chat">−</button>
+            </div>
+          </div>
+          <div class="chat-messages" id="chatMessages" role="log" aria-live="polite"></div>
+          <form id="chatForm" class="chat-form">
+            <input id="chatInput" type="text" maxlength="280" placeholder="Message the lobby…" autocomplete="off" />
+            <button id="chatSendBtn" type="submit">Send</button>
+          </form>
+        </aside>
       </div>
       <div class="mode-overlay" id="modeOverlay">
         <div class="mode-dialog">
@@ -2289,6 +2450,18 @@ class GameApp extends HTMLElement {
     `;
     this.shadowRoot.innerHTML = '';
     this.shadowRoot.appendChild(template.content.cloneNode(true));
+  }
+
+  createChatState() {
+    return {
+      scope: 'lobby',
+      roomId: null,
+      roomName: '',
+      lobby: { messages: [] },
+      rooms: new Map(),
+      collapsed: false,
+      connection: 'offline',
+    };
   }
 
   createMusicLabState() {
@@ -2416,6 +2589,315 @@ class GameApp extends HTMLElement {
     this.setMusicLabPlayingState(false);
     this.updateMusicLabInfo('Tap pads to arm them and press Play.');
     this.applyMusicLabPatternToBackground();
+  }
+
+  setupChatInterface() {
+    if (!this.chatPanel) {
+      return;
+    }
+
+    if (this.chatForm && !this.chatForm.dataset.bound) {
+      this.chatForm.addEventListener('submit', (event) => {
+        event.preventDefault();
+        this.submitChatMessage();
+      });
+      this.chatForm.dataset.bound = 'true';
+    }
+
+    if (this.chatToggleBtn && !this.chatToggleBtn.dataset.bound) {
+      this.chatToggleBtn.addEventListener('click', () => {
+        this.chat.collapsed = !this.chat.collapsed;
+        this.chatPanel.classList.toggle('collapsed', this.chat.collapsed);
+        if (this.chatToggleBtn) {
+          this.chatToggleBtn.setAttribute('aria-expanded', String(!this.chat.collapsed));
+          this.chatToggleBtn.textContent = this.chat.collapsed ? '+' : '−';
+          this.chatToggleBtn.setAttribute('aria-label', this.chat.collapsed ? 'Expand chat' : 'Collapse chat');
+        }
+        if (!this.chat.collapsed) {
+          this.scrollChatToBottom();
+        }
+      });
+      this.chatToggleBtn.dataset.bound = 'true';
+    }
+
+    this.updateChatVisibility();
+    this.updateChatContextUI();
+    this.renderChatMessages();
+    this.updateChatInputState();
+    this.setChatConnectionState(this.chat.connection || 'offline');
+  }
+
+  updateChatVisibility() {
+    if (!this.chatPanel) {
+      return;
+    }
+    const visible = this.mode === 'pvp';
+    this.chatPanel.hidden = !visible;
+  }
+
+  updateChatContextUI() {
+    if (!this.chatPanel) {
+      return;
+    }
+    const scope = this.chat.scope === 'room' && this.chat.roomId ? 'room' : 'lobby';
+    if (scope === 'room' && this.chat.roomId && !this.chat.rooms.has(this.chat.roomId)) {
+      this.chat.rooms.set(this.chat.roomId, []);
+    }
+    if (this.chatTitle) {
+      if (scope === 'room') {
+        const roomName = this.chat.roomName ? `${this.chat.roomName} Comms` : 'Ready Room Comms';
+        this.chatTitle.textContent = roomName;
+      } else {
+        this.chatTitle.textContent = 'Lobby Comms';
+      }
+    }
+    if (this.chatSubtitle) {
+      this.chatSubtitle.textContent = scope === 'room'
+        ? 'Chat with commanders in your room.'
+        : 'Chat with commanders in the lobby.';
+    }
+    if (this.chatToggleBtn) {
+      this.chatToggleBtn.setAttribute('aria-expanded', String(!this.chat.collapsed));
+      this.chatToggleBtn.textContent = this.chat.collapsed ? '+' : '−';
+      this.chatToggleBtn.setAttribute('aria-label', this.chat.collapsed ? 'Expand chat' : 'Collapse chat');
+    }
+    if (this.chatPanel) {
+      this.chatPanel.classList.toggle('collapsed', !!this.chat.collapsed);
+    }
+    this.updateChatInputPlaceholder();
+    this.updateChatVisibility();
+  }
+
+  updateChatInputPlaceholder() {
+    if (!this.chatInput) {
+      return;
+    }
+    if (this.chat.scope === 'room' && this.chat.roomId) {
+      this.chatInput.placeholder = this.chat.roomName
+        ? `Message ${this.chat.roomName}…`
+        : 'Message your opponent…';
+    } else {
+      this.chatInput.placeholder = 'Message the lobby…';
+    }
+  }
+
+  getActiveChatMessages() {
+    if (this.chat.scope === 'room' && this.chat.roomId) {
+      return this.chat.rooms.get(this.chat.roomId) || [];
+    }
+    return this.chat.lobby.messages;
+  }
+
+  renderChatMessages() {
+    if (!this.chatMessages) {
+      return;
+    }
+    const messages = this.getActiveChatMessages();
+    this.chatMessages.innerHTML = '';
+    messages.forEach((msg) => {
+      const normalized = this.normalizeChatMessage(msg);
+      if (!normalized) {
+        return;
+      }
+      const element = this.buildChatMessageElement(normalized);
+      this.chatMessages.appendChild(element);
+    });
+    this.scrollChatToBottom();
+  }
+
+  scrollChatToBottom() {
+    if (!this.chatMessages) {
+      return;
+    }
+    this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
+  }
+
+  buildChatMessageElement(message) {
+    const container = document.createElement('div');
+    container.className = 'chat-message';
+
+    const meta = document.createElement('div');
+    meta.className = 'chat-meta';
+
+    const author = document.createElement('span');
+    author.className = 'chat-author';
+    author.textContent = message.author || 'Commander';
+
+    const time = document.createElement('span');
+    time.className = 'chat-time';
+    const timestamp = Number.isFinite(message.timestamp) ? message.timestamp : Date.now();
+    time.textContent = new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    meta.appendChild(author);
+    meta.appendChild(time);
+
+    const text = document.createElement('div');
+    text.className = 'chat-text';
+    text.textContent = message.text || '';
+
+    container.appendChild(meta);
+    container.appendChild(text);
+    return container;
+  }
+
+  appendChatMessageToUI(message) {
+    if (!this.chatMessages) {
+      return;
+    }
+    const normalized = this.normalizeChatMessage(message);
+    if (!normalized) {
+      return;
+    }
+    const element = this.buildChatMessageElement(normalized);
+    this.chatMessages.appendChild(element);
+    this.scrollChatToBottom();
+  }
+
+  submitChatMessage() {
+    if (!this.chatInput || this.chatInput.disabled) {
+      return;
+    }
+    const value = this.chatInput.value.trim();
+    if (!value) {
+      return;
+    }
+    const scope = this.chat.scope === 'room' && this.chat.roomId ? 'room' : 'lobby';
+    this.send({ type: 'chatSend', scope, message: value });
+    this.chatInput.value = '';
+  }
+
+  setChatConnectionState(state) {
+    this.chat.connection = state;
+    if (!this.chatStatusDot) {
+      return;
+    }
+    this.chatStatusDot.classList.remove('offline', 'idle');
+    if (state === 'online') {
+      // default styling already indicates online
+    } else if (state === 'connecting') {
+      this.chatStatusDot.classList.add('idle');
+    } else {
+      this.chatStatusDot.classList.add('offline');
+    }
+    this.updateChatInputState();
+  }
+
+  updateChatInputState() {
+    if (!this.chatInput) {
+      return;
+    }
+    const canChat = this.mode === 'pvp' && this.chat.connection === 'online';
+    this.chatInput.disabled = !canChat;
+    if (this.chatSendBtn) {
+      this.chatSendBtn.disabled = !canChat;
+    }
+  }
+
+  resetChatState() {
+    this.chat = this.createChatState();
+    this.updateChatContextUI();
+    this.renderChatMessages();
+    this.setChatConnectionState('offline');
+  }
+
+  normalizeChatMessage(message) {
+    if (!message) {
+      return null;
+    }
+    const safeAuthor = typeof message.author === 'string' && message.author.trim()
+      ? message.author.trim()
+      : 'Commander';
+    const safeText = typeof message.text === 'string' ? message.text : '';
+    const safeTimestamp = Number.isFinite(message.timestamp) ? message.timestamp : Date.now();
+    const safeId = typeof message.id === 'string' && message.id ? message.id : `local-${safeTimestamp}-${Math.random().toString(16).slice(2, 6)}`;
+    return {
+      id: safeId,
+      author: safeAuthor,
+      text: safeText,
+      timestamp: safeTimestamp,
+    };
+  }
+
+  addChatMessageToChannel(channelId, message) {
+    const normalized = this.normalizeChatMessage(message);
+    if (!normalized) {
+      return;
+    }
+    if (channelId === 'lobby') {
+      this.chat.lobby.messages.push(normalized);
+      if (this.chat.lobby.messages.length > 120) {
+        this.chat.lobby.messages.shift();
+      }
+      return;
+    }
+    if (!this.chat.rooms.has(channelId)) {
+      this.chat.rooms.set(channelId, []);
+    }
+    const store = this.chat.rooms.get(channelId);
+    store.push(normalized);
+    if (store.length > 120) {
+      store.shift();
+    }
+  }
+
+  applyChatContext(payload) {
+    const scope = payload && payload.scope === 'room' ? 'room' : 'lobby';
+    if (scope === 'room') {
+      const roomId = typeof payload.roomId === 'string' && payload.roomId ? payload.roomId : this.chat.roomId;
+      this.chat.scope = 'room';
+      this.chat.roomId = roomId;
+      this.chat.roomName = typeof payload.roomName === 'string' ? payload.roomName : this.chat.roomName;
+    } else {
+      this.chat.scope = 'lobby';
+      this.chat.roomId = null;
+      this.chat.roomName = '';
+    }
+    this.updateChatContextUI();
+    this.renderChatMessages();
+  }
+
+  applyChatHistory(payload) {
+    if (!payload || !Array.isArray(payload.messages)) {
+      return;
+    }
+    if (payload.scope === 'room') {
+      const roomId = typeof payload.roomId === 'string' ? payload.roomId : null;
+      if (!roomId) {
+        return;
+      }
+      const messages = payload.messages.map((msg) => this.normalizeChatMessage(msg)).filter(Boolean);
+      this.chat.rooms.set(roomId, messages);
+      if (this.chat.scope === 'room' && this.chat.roomId === roomId) {
+        this.renderChatMessages();
+      }
+      return;
+    }
+    const messages = payload.messages.map((msg) => this.normalizeChatMessage(msg)).filter(Boolean);
+    this.chat.lobby.messages = messages;
+    if (this.chat.scope === 'lobby') {
+      this.renderChatMessages();
+    }
+  }
+
+  applyChatMessage(payload) {
+    if (!payload || !payload.message) {
+      return;
+    }
+    if (payload.scope === 'room') {
+      const roomId = typeof payload.roomId === 'string' ? payload.roomId : null;
+      if (!roomId) {
+        return;
+      }
+      this.addChatMessageToChannel(roomId, payload.message);
+      if (this.chat.scope === 'room' && this.chat.roomId === roomId) {
+        this.appendChatMessageToUI(payload.message);
+      }
+      return;
+    }
+    this.addChatMessageToChannel('lobby', payload.message);
+    if (this.chat.scope === 'lobby') {
+      this.appendChatMessageToUI(payload.message);
+    }
   }
 
   openMusicOverlay() {
@@ -3293,6 +3775,15 @@ class GameApp extends HTMLElement {
     this.musicClearBtn = this.shadowRoot.querySelector('#musicClearBtn');
     this.musicInfo = this.shadowRoot.querySelector('#musicInfo');
     this.closeMusicOverlayBtn = this.shadowRoot.querySelector('#closeMusicOverlayBtn');
+  this.chatPanel = this.shadowRoot.querySelector('#chatPanel');
+  this.chatTitle = this.shadowRoot.querySelector('#chatTitle');
+  this.chatSubtitle = this.shadowRoot.querySelector('#chatSubtitle');
+  this.chatMessages = this.shadowRoot.querySelector('#chatMessages');
+  this.chatForm = this.shadowRoot.querySelector('#chatForm');
+  this.chatInput = this.shadowRoot.querySelector('#chatInput');
+  this.chatSendBtn = this.shadowRoot.querySelector('#chatSendBtn');
+  this.chatToggleBtn = this.shadowRoot.querySelector('#chatToggleBtn');
+  this.chatStatusDot = this.shadowRoot.querySelector('#chatStatusDot');
 
     this.targetGrid.setInteractive(false);
     this.ownGrid.setInteractive(true);
@@ -3441,6 +3932,7 @@ class GameApp extends HTMLElement {
 
     this.setupSudokuInterface();
     this.setupMusicLabInterface();
+    this.setupChatInterface();
   }
 
   async toggleSfx() {
@@ -3681,6 +4173,7 @@ class GameApp extends HTMLElement {
       this.musicShareEcho.clear();
     }
     this.lastSharedMusic = null;
+    this.resetChatState();
     if (this.ws) {
       try {
         this.ws.close();
@@ -4678,6 +5171,8 @@ class GameApp extends HTMLElement {
       this.refreshLobbyControls();
       this.updateLobbyInfo();
     }
+    this.updateChatVisibility();
+    this.updateChatInputState();
     this.updateSudokuButtonAttention();
   }
 
