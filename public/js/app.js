@@ -18,6 +18,10 @@ class AudioEngine {
     this.musicStep = 0;
     this.scale = [0, 3, 5, 7, 10, 12, 15];
     this.supported = !!(window.AudioContext || window.webkitAudioContext);
+    this.backgroundPattern = null;
+    this.backgroundNotes = [];
+    this.backgroundSteps = 0;
+    this.backgroundTempo = 750;
   }
 
   ensureContext() {
@@ -102,12 +106,8 @@ class AudioEngine {
     this.musicGain.gain.setValueAtTime(this.musicGain.gain.value, now);
     this.musicGain.gain.linearRampToValueAtTime(0.35, now + 0.4);
     this.musicStep = 0;
-    if (this.musicTimer) {
-      clearInterval(this.musicTimer);
-    }
-    this.musicTimer = setInterval(() => {
-      this.playMusicStep();
-    }, 750);
+    this.refreshMusicLoopTimer();
+    this.playMusicStep();
   }
 
   async stopMusic() {
@@ -163,6 +163,32 @@ class AudioEngine {
         gainPeak: 0.18,
         type: 'triangle',
         destination: this.musicGain,
+      });
+    }
+
+    if (Array.isArray(this.backgroundPattern) && this.backgroundPattern.length > 0) {
+      const stepCount = this.backgroundSteps > 0 ? this.backgroundSteps : (this.backgroundPattern[0]?.length || 0);
+      const patternStep = stepCount > 0 ? this.musicStep % stepCount : 0;
+      const notes = Array.isArray(this.backgroundNotes) && this.backgroundNotes.length === this.backgroundPattern.length
+        ? this.backgroundNotes
+        : null;
+
+      this.backgroundPattern.forEach((row, rowIdx) => {
+        if (!row || !row[patternStep]) {
+          return;
+        }
+        const note = notes && notes[rowIdx] ? notes[rowIdx] : { semitone: rowIdx * 2 };
+        const semitone = typeof note.semitone === 'number' ? note.semitone : rowIdx * 2;
+        const frequency = baseFreq * 2 ** (semitone / 12);
+        const gainPeak = 0.22 + Math.min(rowIdx * 0.03, 0.12);
+        this.spawnTone({
+          frequencyStart: frequency,
+          frequencyEnd: frequency * 1.01,
+          duration: accent ? 0.65 : 0.5,
+          gainPeak: Math.min(0.4, gainPeak),
+          type: rowIdx % 2 === 0 ? 'triangle' : 'sine',
+          destination: this.musicGain,
+        });
       });
     }
 
@@ -360,6 +386,62 @@ class AudioEngine {
         destination: this.sfxGain,
       });
     });
+  }
+
+  setBackgroundPattern(config) {
+    if (!config || !Array.isArray(config.pattern) || config.pattern.length === 0) {
+      this.backgroundPattern = null;
+      this.backgroundNotes = [];
+      this.backgroundSteps = 0;
+      this.backgroundTempo = 750;
+      this.musicStep = 0;
+      if (this.musicEnabled) {
+        this.refreshMusicLoopTimer();
+      }
+      return;
+    }
+
+    const maxRows = Math.min(config.pattern.length, 16);
+    const steps = Number.isInteger(config.steps) && config.steps > 0 ? Math.min(config.steps, 32) : (config.pattern[0]?.length || 8);
+    const sanitizedPattern = Array.from({ length: maxRows }, (_, rowIdx) => {
+      const row = Array.isArray(config.pattern[rowIdx]) ? config.pattern[rowIdx] : [];
+      return Array.from({ length: steps }, (__, stepIdx) => !!row[stepIdx]);
+    });
+
+    const notes = Array.isArray(config.notes)
+      ? sanitizedPattern.map((_, idx) => {
+        const note = config.notes[idx] || {};
+        return {
+          label: typeof note.label === 'string' ? note.label : '',
+          semitone: typeof note.semitone === 'number' ? note.semitone : idx * 2,
+        };
+      })
+      : sanitizedPattern.map((_, idx) => ({ label: '', semitone: idx * 2 }));
+
+    this.backgroundPattern = sanitizedPattern;
+    this.backgroundNotes = notes;
+    this.backgroundSteps = steps;
+    const inferredTempo = typeof config.tempo === 'number' && Number.isFinite(config.tempo) ? config.tempo : 480;
+    this.backgroundTempo = Math.min(1500, Math.max(180, inferredTempo));
+    this.musicStep = 0;
+
+    if (this.musicEnabled) {
+      this.refreshMusicLoopTimer();
+    }
+  }
+
+  refreshMusicLoopTimer() {
+    if (this.musicTimer) {
+      clearInterval(this.musicTimer);
+      this.musicTimer = null;
+    }
+    if (!this.musicEnabled) {
+      return;
+    }
+    const interval = Math.min(1500, Math.max(180, this.backgroundTempo || 750));
+    this.musicTimer = setInterval(() => {
+      this.playMusicStep();
+    }, interval);
   }
 }
 
@@ -932,7 +1014,174 @@ class GameApp extends HTMLElement {
     this.handleSudokuKeypadClick = this.handleSudokuKeypadClick.bind(this);
     this.handleSudokuBoardClick = this.handleSudokuBoardClick.bind(this);
     this.handleSudokuOverlayKeydown = this.handleSudokuOverlayKeydown.bind(this);
+    this.musicShareTimer = null;
+    this.musicShareEcho = new Map();
+    this.lastSharedMusic = null;
     this.render();
+  }
+
+  applyMusicLabPatternToBackground(options = {}) {
+    if (!this.audio || !this.audio.supported) {
+      return;
+    }
+    const lab = this.musicLab;
+    const pattern = options.pattern || (lab ? lab.pattern : null);
+    if (!pattern || !Array.isArray(pattern)) {
+      this.audio.setBackgroundPattern(null);
+      return;
+    }
+    const steps = options.steps || (lab ? lab.steps : undefined);
+    const notes = options.notes || (lab ? lab.notes : undefined);
+    const tempo = options.tempo || (lab ? lab.tempo : undefined);
+    this.audio.setBackgroundPattern({ pattern, steps, notes, tempo });
+  }
+
+  scheduleMusicLabBroadcast(reason = 'update') {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    if (this.mode !== 'pvp' || this.state !== 'lobby') {
+      return;
+    }
+    if (this.musicShareTimer) {
+      clearTimeout(this.musicShareTimer);
+    }
+    this.musicShareTimer = setTimeout(() => {
+      this.musicShareTimer = null;
+      this.broadcastMusicLabPattern(reason);
+    }, 320);
+  }
+
+  broadcastMusicLabPattern(reason = 'update') {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.musicLab) {
+      return;
+    }
+    const { pattern, steps, notes, tempo } = this.musicLab;
+    if (!Array.isArray(pattern)) {
+      return;
+    }
+    const shareId = this.generateMusicShareId();
+    this.musicShareEcho.set(shareId, Date.now());
+    this.pruneMusicShareEcho();
+    this.send({
+      type: 'musicLabShare',
+      pattern: pattern.map((row) => row.map((value) => !!value)),
+      steps,
+      notes: Array.isArray(notes) ? notes.map((note) => ({
+        label: note.label,
+        semitone: note.semitone,
+      })) : [],
+      tempo,
+      reason,
+      shareId,
+      activeCount: pattern.reduce((sum, row) => sum + row.filter(Boolean).length, 0),
+    });
+  }
+
+  generateMusicShareId() {
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  pruneMusicShareEcho() {
+    const now = Date.now();
+    this.musicShareEcho.forEach((timestamp, key) => {
+      if (now - timestamp > 15000) {
+        this.musicShareEcho.delete(key);
+      }
+    });
+  }
+
+  handleIncomingMusicPattern(data, options = {}) {
+    if (!data) {
+      this.applyMusicLabPatternToBackground({ pattern: null });
+      return;
+    }
+
+    if (data.shareId && this.musicShareEcho.has(data.shareId)) {
+      this.musicShareEcho.delete(data.shareId);
+      this.applyMusicLabPatternToBackground({
+        pattern: this.convertPatternForLab(data.pattern),
+        steps: this.musicLab ? this.musicLab.steps : data.steps,
+        notes: data.notes,
+        tempo: data.tempo,
+      });
+      return;
+    }
+
+    const hasPattern = Array.isArray(data.pattern) && data.pattern.length > 0;
+    if (!hasPattern) {
+      this.applyMusicLabPatternToBackground({ pattern: null });
+      const lab = this.musicLab;
+      if (lab) {
+        lab.pattern = this.convertPatternForLab([]);
+        this.refreshMusicPadStates();
+        if (lab.open) {
+          this.updateMusicLabInfo('Lobby groove cleared. Compose a new sequence.');
+        }
+      }
+      if (this.musicLabBtn) {
+        this.musicLabBtn.classList.remove('attention');
+      }
+      if (!options.silent) {
+        this.addLog('Lobby groove cleared.', 'info');
+      }
+      this.lastSharedMusic = null;
+      return;
+    }
+
+    const sanitizedPattern = this.convertPatternForLab(data.pattern);
+    this.applyMusicLabPatternToBackground({
+      pattern: sanitizedPattern,
+      steps: this.musicLab ? this.musicLab.steps : data.steps,
+      notes: data.notes,
+      tempo: data.tempo,
+    });
+
+    const lab = this.musicLab;
+    if (lab) {
+      lab.pattern = sanitizedPattern;
+      if (Number.isFinite(data.tempo)) {
+        lab.tempo = Math.max(120, Math.min(1000, data.tempo));
+      }
+      this.refreshMusicPadStates();
+      if (lab.open) {
+        this.updateMusicLabInfo(`Lobby groove synced from ${data.author || 'ally commander'}.`);
+      } else if (this.musicInfo && (this.musicInfo.textContent || '').length === 0) {
+        this.updateMusicLabInfo(`Lobby groove set by ${data.author || 'ally commander'}. Press Play to hear it.`);
+      }
+    }
+
+    if (this.musicLabBtn) {
+      this.musicLabBtn.classList.add('attention');
+    }
+
+    if (!options.silent) {
+      this.addLog(`Lobby music updated by ${data.author || 'another commander'}.`, 'info');
+    }
+    this.lastSharedMusic = data;
+  }
+
+  convertPatternForLab(pattern) {
+    const lab = this.musicLab;
+    const rowCount = lab ? lab.notes.length : Array.isArray(pattern) ? pattern.length : 0;
+    const steps = lab ? lab.steps : 8;
+    if (!Array.isArray(pattern) || rowCount === 0) {
+      return Array.from({ length: rowCount }, () => Array(steps).fill(false));
+    }
+    return Array.from({ length: rowCount }, (_, rowIdx) => {
+      const row = Array.isArray(pattern[rowIdx]) ? pattern[rowIdx] : [];
+      return Array.from({ length: steps }, (__, stepIdx) => !!row[stepIdx]);
+    });
+  }
+
+  handleMusicLabPatternChanged({ reason = 'update', broadcast = true } = {}) {
+    this.applyMusicLabPatternToBackground();
+    if (broadcast) {
+      this.scheduleMusicLabBroadcast(reason);
+    }
+    if (this.musicLabBtn) {
+      this.musicLabBtn.classList.remove('attention');
+    }
   }
 
   connectedCallback() {
@@ -1589,6 +1838,8 @@ class GameApp extends HTMLElement {
       timer: null,
       pads: new Map(),
       stepGroups: Array.from({ length: steps }, () => []),
+      tempo: 420,
+      pendingSharedPattern: null,
     };
   }
 
@@ -1654,6 +1905,7 @@ class GameApp extends HTMLElement {
         } else {
           this.openMusicOverlay();
         }
+        this.musicLabBtn.classList.remove('attention');
       });
     }
 
@@ -1697,6 +1949,7 @@ class GameApp extends HTMLElement {
 
     this.setMusicLabPlayingState(false);
     this.updateMusicLabInfo('Tap pads to arm them and press Play.');
+    this.applyMusicLabPatternToBackground();
   }
 
   openMusicOverlay() {
@@ -1748,6 +2001,7 @@ class GameApp extends HTMLElement {
     } else {
       this.updateMusicLabInfo('Pad cleared. Keep sculpting your beat.');
     }
+    this.handleMusicLabPatternChanged({ reason: 'padToggle' });
   }
 
   async playMusicLab() {
@@ -1779,9 +2033,11 @@ class GameApp extends HTMLElement {
     this.updateMusicLabInfo('Sequence running. Tap Stop to pause.');
 
     this.advanceMusicLabStep();
+    const tempo = Math.max(120, Math.min(1000, lab.tempo || 420));
     lab.timer = setInterval(() => {
       this.advanceMusicLabStep();
-    }, 420);
+    }, tempo);
+    this.scheduleMusicLabBroadcast('play');
   }
 
   stopMusicLab(options = {}) {
@@ -1867,6 +2123,7 @@ class GameApp extends HTMLElement {
     ));
     this.refreshMusicPadStates();
     this.updateMusicLabInfo('Fresh pattern loaded. Press Play to listen.');
+    this.handleMusicLabPatternChanged({ reason: 'randomize' });
   }
 
   clearMusicPattern() {
@@ -1877,6 +2134,7 @@ class GameApp extends HTMLElement {
     lab.pattern = Array.from({ length: lab.notes.length }, () => Array(lab.steps).fill(false));
     this.refreshMusicPadStates();
     this.updateMusicLabInfo('Pads cleared. Paint a new rhythm.');
+    this.handleMusicLabPatternChanged({ reason: 'clear' });
   }
 
   refreshMusicPadStates() {
@@ -2949,6 +3207,14 @@ class GameApp extends HTMLElement {
     this.clearLocalTimers();
     this.shutdownMusicLab();
     this.shutdownSudoku();
+    if (this.musicShareTimer) {
+      clearTimeout(this.musicShareTimer);
+      this.musicShareTimer = null;
+    }
+    if (this.musicShareEcho) {
+      this.musicShareEcho.clear();
+    }
+    this.lastSharedMusic = null;
     if (this.ws) {
       try {
         this.ws.close();
@@ -3353,6 +3619,10 @@ class GameApp extends HTMLElement {
         this.updateLobbyInfo();
         break;
       }
+      case 'lobbyMusic':
+      case 'lobbyMusicUpdate':
+        this.handleIncomingMusicPattern(payload, { silent: payload.type === 'lobbyMusic' });
+        break;
       case 'roomJoined': {
         this.currentRoom = {
           roomId: payload.roomId,

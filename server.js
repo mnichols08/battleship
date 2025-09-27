@@ -490,6 +490,7 @@ class GameManager {
     this.players = new Set();
     this.rooms = new Map();
     this.games = new Set();
+    this.lobbyMusic = null;
   }
 
   addConnection(connection) {
@@ -505,6 +506,7 @@ class GameManager {
 
     player.send('playerAssignment', { player: null });
     this.sendLobbySnapshot(player);
+    this.sendLobbyMusicSnapshot(player);
   }
 
   handleMessage(player, rawMessage) {
@@ -571,6 +573,9 @@ class GameManager {
         }
         break;
       }
+      case 'musicLabShare':
+        this.handleMusicLabShare(player, payload);
+        break;
       default:
         player.send('error', { message: 'Unknown message type.' });
     }
@@ -731,6 +736,110 @@ class GameManager {
         player.send('lobbyUpdate', { rooms });
       }
     });
+  }
+
+  sendLobbyMusicSnapshot(player) {
+    if (!player) {
+      return;
+    }
+    if (this.lobbyMusic) {
+      player.send('lobbyMusic', { ...this.lobbyMusic });
+    } else {
+      player.send('lobbyMusic', {});
+    }
+  }
+
+  broadcastLobbyMusic(update) {
+    const message = update || this.lobbyMusic;
+    this.players.forEach((player) => {
+      if (!player.game) {
+        if (message) {
+          player.send('lobbyMusicUpdate', { ...message });
+        } else {
+          player.send('lobbyMusicUpdate', {});
+        }
+      }
+    });
+  }
+
+  sanitizeMusicShare(payload) {
+    if (!payload || typeof payload !== 'object') {
+      return { ok: false, message: 'Invalid music payload.' };
+    }
+
+    const maxRows = 16;
+    const maxSteps = 32;
+
+    const steps = Number.isInteger(payload.steps) && payload.steps > 0
+      ? Math.min(payload.steps, maxSteps)
+      : (Array.isArray(payload.pattern) && payload.pattern[0] ? Math.min(payload.pattern[0].length, maxSteps) : 8);
+
+    if (steps <= 0) {
+      return { ok: false, message: 'Invalid step count for music pattern.' };
+    }
+
+    if (!Array.isArray(payload.pattern) || payload.pattern.length === 0) {
+      return { ok: false, message: 'Music pattern must contain at least one row.' };
+    }
+
+    const rowCount = Math.min(payload.pattern.length, maxRows);
+    const pattern = Array.from({ length: rowCount }, (_, rowIdx) => {
+      const row = Array.isArray(payload.pattern[rowIdx]) ? payload.pattern[rowIdx] : [];
+      return Array.from({ length: steps }, (__, stepIdx) => !!row[stepIdx]);
+    });
+
+    const activeCount = pattern.reduce((sum, row) => sum + row.filter(Boolean).length, 0);
+
+    const notes = Array.isArray(payload.notes)
+      ? pattern.map((_, idx) => {
+        const note = payload.notes[idx] || {};
+        return {
+          label: typeof note.label === 'string' ? note.label.slice(0, 12) : '',
+          semitone: Number.isFinite(note.semitone) ? Math.max(-48, Math.min(72, note.semitone)) : idx * 2,
+        };
+      })
+      : pattern.map((_, idx) => ({ label: '', semitone: idx * 2 }));
+
+  const tempo = Number.isFinite(payload.tempo) ? Math.min(1000, Math.max(120, payload.tempo)) : 480;
+
+    const shareId = typeof payload.shareId === 'string' ? payload.shareId.slice(0, 42) : undefined;
+
+    return {
+      ok: true,
+      pattern,
+      steps,
+      notes,
+      tempo,
+      activeCount,
+      shareId,
+    };
+  }
+
+  handleMusicLabShare(player, payload) {
+    if (player.game) {
+      player.send('error', { message: 'Music Lab sharing is only available while in the lobby.' });
+      return;
+    }
+
+    const result = this.sanitizeMusicShare(payload);
+    if (!result.ok) {
+      player.send('error', { message: result.message });
+      return;
+    }
+
+    const musicState = {
+      pattern: result.pattern,
+      steps: result.steps,
+      notes: result.notes,
+      tempo: result.tempo,
+      author: player.name,
+      shareId: result.shareId,
+      activeCount: result.activeCount,
+      timestamp: Date.now(),
+    };
+
+    this.lobbyMusic = musicState;
+    this.broadcastLobbyMusic(musicState);
   }
 
   buildLobbyRooms() {
