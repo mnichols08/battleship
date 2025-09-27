@@ -447,15 +447,21 @@ class AudioEngine {
 
 class BattleGrid extends HTMLElement {
   static get observedAttributes() {
-    return ['mode'];
+    return ['mode', 'reveal-ships'];
   }
 
   constructor() {
     super();
     this.attachShadow({ mode: 'open' });
     this.cells = new Map();
-    this.shipDecor = new Map();
+  this.shipDecor = new Map();
+  this.shipOverlays = new Map();
+  this.shipSegments = new Map();
     this.mode = this.getAttribute('mode') || 'placement';
+    this.revealShips = this.mode !== 'target';
+    this.overlayLayer = null;
+    this.resizeObserver = null;
+    this.pendingOverlayPositionFrame = null;
     this.interactive = true;
     this.render();
   }
@@ -463,12 +469,32 @@ class BattleGrid extends HTMLElement {
   attributeChangedCallback(name, _old, value) {
     if (name === 'mode') {
       this.mode = value;
+      const revealAttr = this.getAttribute('reveal-ships');
+      this.revealShips = revealAttr === null ? this.mode !== 'target' : revealAttr !== 'false';
       this.updateMode();
+      this.updateOverlayVisibility();
+    } else if (name === 'reveal-ships') {
+      this.revealShips = value === null ? this.mode !== 'target' : value !== 'false';
+      this.updateOverlayVisibility();
     }
   }
 
   connectedCallback() {
     this.updateMode();
+    this.updateOverlayVisibility();
+    this.updateOverlayPositions();
+  }
+
+  disconnectedCallback() {
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect();
+      this.resizeObserver = null;
+    }
+    if (this.pendingOverlayPositionFrame) {
+      const cancelFrame = typeof cancelAnimationFrame === 'function' ? cancelAnimationFrame : clearTimeout;
+      cancelFrame(this.pendingOverlayPositionFrame);
+      this.pendingOverlayPositionFrame = null;
+    }
   }
 
   render() {
@@ -495,6 +521,104 @@ class BattleGrid extends HTMLElement {
           grid-template-columns: repeat(10, minmax(30px, 1fr));
           grid-template-rows: repeat(10, minmax(30px, 1fr));
           gap: 2px;
+        }
+        .grid-wrapper {
+          position: relative;
+        }
+        .ship-overlays {
+          position: absolute;
+          inset: 0;
+          pointer-events: none;
+          z-index: 2;
+        }
+        .ship-overlay {
+          position: absolute;
+          pointer-events: none;
+          --ship-hull-light: rgba(126, 178, 255, 0.94);
+          --ship-hull-dark: rgba(27, 46, 86, 0.95);
+          --ship-stripe: rgba(255, 255, 255, 0.2);
+          border-radius: 26px;
+          background:
+            linear-gradient(165deg, rgba(255, 255, 255, 0.12), rgba(0, 0, 0, 0.18)),
+            linear-gradient(135deg, var(--ship-hull-light), var(--ship-hull-dark));
+          box-shadow:
+            0 14px 32px rgba(0, 0, 0, 0.45),
+            inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+          overflow: hidden;
+          transition: transform 180ms ease, box-shadow 220ms ease, opacity 180ms ease, filter 220ms ease;
+        }
+        .ship-overlay.horizontal::before,
+        .ship-overlay.vertical::before {
+          content: '';
+          position: absolute;
+          inset: 8% 6%;
+          border-radius: 22px;
+          background:
+            repeating-linear-gradient(
+              to right,
+              transparent 0,
+              transparent 12px,
+              var(--ship-stripe) 12px,
+              var(--ship-stripe) 14px
+            ),
+            linear-gradient(120deg, rgba(255, 255, 255, 0.12), rgba(15, 21, 32, 0.32));
+          box-shadow:
+            inset 0 0 12px rgba(0, 0, 0, 0.35);
+        }
+        .ship-overlay.vertical::before {
+          background:
+            repeating-linear-gradient(
+              to bottom,
+              transparent 0,
+              transparent 12px,
+              var(--ship-stripe) 12px,
+              var(--ship-stripe) 14px
+            ),
+            linear-gradient(150deg, rgba(255, 255, 255, 0.12), rgba(15, 21, 32, 0.32));
+        }
+        .ship-overlay::after {
+          content: '';
+          position: absolute;
+          inset: 14% 20%;
+          border-radius: 999px;
+          background: radial-gradient(circle at 50% 18%, rgba(255, 255, 255, 0.22), transparent 60%);
+          opacity: 0.85;
+          pointer-events: none;
+        }
+        .ship-overlay.horizontal::after {
+          inset: 16% 16%;
+        }
+        .ship-overlay.is-hidden {
+          opacity: 0;
+          transform: scale(0.96);
+          filter: saturate(0.5);
+        }
+        .ship-overlay.ship-overlay-damaged {
+          filter: saturate(1.2) brightness(1.05);
+          box-shadow:
+            0 18px 36px rgba(0, 0, 0, 0.55),
+            inset 0 0 0 1px rgba(255, 117, 140, 0.45);
+        }
+        .ship-overlay.ship-overlay-destroyed {
+          filter: grayscale(0.55) brightness(0.8);
+          box-shadow:
+            0 12px 26px rgba(0, 0, 0, 0.55),
+            inset 0 0 0 1px rgba(0, 0, 0, 0.55);
+        }
+        .ship-overlay-hit {
+          position: absolute;
+          width: 18px;
+          height: 18px;
+          border-radius: 50%;
+          background:
+            radial-gradient(circle at 45% 40%, rgba(255, 220, 156, 0.85), rgba(152, 48, 42, 0.75) 55%, rgba(103, 22, 20, 0.95));
+          box-shadow: 0 0 18px rgba(255, 136, 98, 0.55);
+          transform: translate(-50%, -50%);
+        }
+        .ship-overlay.ship-overlay-destroyed .ship-overlay-hit {
+          background:
+            radial-gradient(circle at 50% 45%, rgba(0, 0, 0, 0.85), rgba(0, 0, 0, 0.4) 60%, rgba(24, 24, 24, 0.6));
+          box-shadow: 0 0 16px rgba(0, 0, 0, 0.75);
         }
         .cell {
           position: relative;
@@ -645,37 +769,54 @@ class BattleGrid extends HTMLElement {
               rgba(255, 255, 255, 0.08) 9px
             );
         }
-        .cell.ship-type-carrier {
+        .cell.ship-overlayed.ship-segment::before,
+        .cell.ship-overlayed.ship-segment::after {
+          display: none;
+        }
+        .cell.ship-overlayed.ship,
+        .cell.ship-overlayed.sunk {
+          background: rgba(10, 24, 40, 0.55);
+          border-color: rgba(78, 220, 255, 0.2);
+          box-shadow: inset 0 0 0 1px rgba(78, 220, 255, 0.08);
+        }
+        .cell.ship-type-carrier,
+        .ship-overlay.ship-type-carrier {
           --ship-hull-light: rgba(126, 178, 255, 0.95);
           --ship-hull-dark: rgba(27, 46, 86, 0.95);
           --ship-stripe: rgba(255, 255, 255, 0.2);
         }
-        .cell.ship-type-battleship {
+        .cell.ship-type-battleship,
+        .ship-overlay.ship-type-battleship {
           --ship-hull-light: rgba(136, 164, 185, 0.95);
           --ship-hull-dark: rgba(44, 58, 74, 0.95);
           --ship-stripe: rgba(255, 255, 255, 0.16);
         }
-        .cell.ship-type-cruiser {
+        .cell.ship-type-cruiser,
+        .ship-overlay.ship-type-cruiser {
           --ship-hull-light: rgba(116, 191, 206, 0.95);
           --ship-hull-dark: rgba(32, 70, 86, 0.95);
           --ship-stripe: rgba(255, 255, 255, 0.18);
         }
-        .cell.ship-type-submarine {
+        .cell.ship-type-submarine,
+        .ship-overlay.ship-type-submarine {
           --ship-hull-light: rgba(125, 140, 162, 0.95);
           --ship-hull-dark: rgba(28, 39, 54, 0.95);
           --ship-stripe: rgba(255, 255, 255, 0.12);
         }
-        .cell.ship-type-destroyer {
+        .cell.ship-type-destroyer,
+        .ship-overlay.ship-type-destroyer {
           --ship-hull-light: rgba(186, 204, 214, 0.95);
           --ship-hull-dark: rgba(58, 84, 101, 0.95);
           --ship-stripe: rgba(255, 255, 255, 0.2);
         }
-        .cell.ship-type-unknown {
+        .cell.ship-type-unknown,
+        .ship-overlay.ship-type-unknown {
           --ship-hull-light: rgba(150, 168, 188, 0.95);
           --ship-hull-dark: rgba(54, 70, 92, 0.95);
           --ship-stripe: rgba(255, 255, 255, 0.14);
         }
-        .cell.ship-type-target {
+        .cell.ship-type-target,
+        .ship-overlay.ship-type-target {
           --ship-hull-light: rgba(165, 186, 210, 0.95);
           --ship-hull-dark: rgba(52, 71, 96, 0.95);
           --ship-stripe: rgba(255, 255, 255, 0.2);
@@ -753,11 +894,14 @@ class BattleGrid extends HTMLElement {
           margin-top: 12px;
         }
       </style>
-      <div class="grid-shell">
+        <div class="grid-shell">
         <div class="labels top">
           ${Array.from({ length: 10 }, (_, i) => `<span>${String.fromCharCode(65 + i)}</span>`).join('')}
         </div>
-        <div class="grid" part="grid"></div>
+        <div class="grid-wrapper">
+          <div class="grid" part="grid"></div>
+          <div class="ship-overlays" part="ship-overlays"></div>
+        </div>
         <div class="labels bottom">
           ${Array.from({ length: 10 }, (_, i) => `<span>${i + 1}</span>`).join('')}
         </div>
@@ -769,6 +913,19 @@ class BattleGrid extends HTMLElement {
 
     this.container = this.shadowRoot.querySelector('.grid-shell');
     this.gridElement = this.shadowRoot.querySelector('.grid');
+    this.overlayLayer = this.shadowRoot.querySelector('.ship-overlays');
+
+    if (typeof ResizeObserver !== 'undefined') {
+      if (this.resizeObserver) {
+        this.resizeObserver.disconnect();
+      }
+      this.resizeObserver = new ResizeObserver(() => {
+        this.updateOverlayPositions();
+      });
+      if (this.gridElement) {
+        this.resizeObserver.observe(this.gridElement);
+      }
+    }
 
     for (let y = 0; y < 10; y += 1) {
       for (let x = 0; x < 10; x += 1) {
@@ -823,8 +980,22 @@ class BattleGrid extends HTMLElement {
     }
   }
 
+  clearShipOverlays() {
+    if (this.overlayLayer) {
+      this.overlayLayer.innerHTML = '';
+    }
+    this.shipOverlays.forEach((overlay) => {
+      if (overlay && overlay.hitMarkers) {
+        overlay.hitMarkers.forEach((marker) => marker.remove());
+      }
+    });
+    this.shipOverlays.clear();
+  }
+
   reset() {
     this.shipDecor.clear();
+    this.clearShipOverlays();
+    this.shipSegments.clear();
     const removable = [
       'ship',
       'hit',
@@ -846,6 +1017,7 @@ class BattleGrid extends HTMLElement {
       'ship-type-destroyer',
       'ship-type-target',
       'ship-type-unknown',
+      'ship-overlayed',
     ];
     this.cells.forEach((cell) => {
       cell.classList.remove(...removable);
@@ -900,25 +1072,55 @@ class BattleGrid extends HTMLElement {
             orientation: 'horizontal',
             segment: 'single',
             shipType: 'target',
+            shipKey: null,
+            overlay: false,
           },
           state,
         );
       }
     }
+
+    this.updateShipOverlayDamage(key, state);
   }
 
   paintShipCells(coordinates, shipName = '') {
     const segments = this.buildShipSegments(coordinates, shipName);
-    segments.forEach(({ point, key, orientation, segment, shipType }) => {
-      this.shipDecor.set(key, { orientation, segment, shipType });
+    if (!segments.length) {
+      return;
+    }
+    const shipKey = segments[0].shipKey;
+    this.shipSegments.set(shipKey, { segments, shipName });
+    const overlayApplied = this.createOrUpdateShipOverlay(shipKey, segments, shipName, false);
+    segments.forEach(({ point, key, orientation, segment, shipType, shipKey: segShipKey }) => {
+      this.shipDecor.set(key, {
+        orientation,
+        segment,
+        shipType,
+        shipKey: segShipKey,
+        overlay: overlayApplied,
+        shipName,
+      });
       this.setCellState(point.x, point.y, 'ship');
     });
   }
 
   markSunkShip(coordinates, shipName = '') {
     const segments = this.buildShipSegments(coordinates, shipName);
-    segments.forEach(({ point, key, orientation, segment, shipType }) => {
-      this.shipDecor.set(key, { orientation, segment, shipType });
+    if (!segments.length) {
+      return;
+    }
+    const shipKey = segments[0].shipKey;
+    this.shipSegments.set(shipKey, { segments, shipName });
+    const overlayApplied = this.createOrUpdateShipOverlay(shipKey, segments, shipName, true);
+    segments.forEach(({ point, key, orientation, segment, shipType, shipKey: segShipKey }) => {
+      this.shipDecor.set(key, {
+        orientation,
+        segment,
+        shipType,
+        shipKey: segShipKey,
+        overlay: overlayApplied,
+        shipName,
+      });
       this.setCellState(point.x, point.y, 'sunk');
     });
   }
@@ -934,6 +1136,7 @@ class BattleGrid extends HTMLElement {
         ? 'horizontal'
         : 'vertical';
     const sorted = [...coordinates].sort((a, b) => (orientation === 'horizontal' ? a.x - b.x : a.y - b.y));
+    const shipKey = sorted.map((point) => `${point.x},${point.y}`).join('|');
     return sorted.map((point, index) => {
       let segment = 'single';
       if (sorted.length > 1) {
@@ -951,6 +1154,7 @@ class BattleGrid extends HTMLElement {
         orientation,
         segment,
         shipType: normalizedType,
+        shipKey,
       };
     });
   }
@@ -964,11 +1168,273 @@ class BattleGrid extends HTMLElement {
     cell.classList.add(`ship-type-${shipType}`);
     cell.dataset.shipType = shipType;
 
+    if (info.overlay) {
+      cell.classList.add('ship-overlayed');
+    } else {
+      cell.classList.remove('ship-overlayed');
+    }
+
     cell.classList.toggle('ship-damaged', state === 'hit');
     cell.classList.toggle('ship-destroyed', state === 'sunk');
     if (state === 'ship') {
       cell.classList.remove('ship-damaged', 'ship-destroyed');
     }
+  }
+
+  createOrUpdateShipOverlay(shipKey, segments, shipName, forceReveal = false) {
+    if (!shipKey || !Array.isArray(segments) || segments.length === 0 || !this.overlayLayer) {
+      return false;
+    }
+
+    const allowReveal = this.revealShips || forceReveal;
+    if (!allowReveal) {
+      return false;
+    }
+
+    const orientation = segments[0].orientation;
+    const shipType = segments[0].shipType || 'unknown';
+
+    let overlay = this.shipOverlays.get(shipKey);
+    if (!overlay) {
+      const element = document.createElement('div');
+      element.classList.add('ship-overlay', orientation === 'vertical' ? 'vertical' : 'horizontal');
+      element.dataset.shipType = shipType;
+      if (shipName) {
+        element.setAttribute('data-ship-name', shipName);
+      }
+
+      overlay = {
+        key: shipKey,
+        element,
+        orientation,
+        shipType,
+        length: segments.length,
+        cells: segments.map((seg) => seg.key),
+        coordinates: segments.map((seg) => seg.point),
+        hits: new Set(),
+        hitMarkers: new Map(),
+        segmentIndex: new Map(),
+        revealed: forceReveal || this.revealShips,
+        destroyed: false,
+        shipName,
+      };
+      segments.forEach((seg, idx) => overlay.segmentIndex.set(seg.key, idx));
+      this.shipOverlays.set(shipKey, overlay);
+      this.overlayLayer.appendChild(element);
+    } else {
+      overlay.orientation = orientation;
+      overlay.shipType = shipType;
+      overlay.length = segments.length;
+      overlay.cells = segments.map((seg) => seg.key);
+      overlay.coordinates = segments.map((seg) => seg.point);
+      overlay.revealed = overlay.revealed || forceReveal || this.revealShips;
+      overlay.segmentIndex = new Map();
+      segments.forEach((seg, idx) => overlay.segmentIndex.set(seg.key, idx));
+      if (shipName) {
+        overlay.element.setAttribute('data-ship-name', shipName);
+      }
+      overlay.shipName = shipName || overlay.shipName;
+    }
+
+    Array.from(overlay.element.classList)
+      .filter((cls) => cls.startsWith('ship-type-'))
+      .forEach((cls) => overlay.element.classList.remove(cls));
+    overlay.element.classList.add(`ship-type-${overlay.shipType}`);
+    overlay.element.dataset.shipType = overlay.shipType;
+
+    overlay.element.classList.remove('horizontal', 'vertical');
+    overlay.element.classList.add(overlay.orientation === 'vertical' ? 'vertical' : 'horizontal');
+
+    if (overlay.destroyed) {
+      overlay.element.classList.add('ship-overlay-destroyed');
+    } else {
+      overlay.element.classList.remove('ship-overlay-destroyed');
+    }
+
+    if (overlay.hits && overlay.hits.size > 0 && !overlay.destroyed) {
+      overlay.element.classList.add('ship-overlay-damaged');
+    } else if (!overlay.destroyed) {
+      overlay.element.classList.remove('ship-overlay-damaged');
+    }
+
+    if (overlay.hitMarkers && overlay.hitMarkers.size > 0) {
+      const length = overlay.length || overlay.cells.length || 1;
+      const step = 100 / length;
+      overlay.hitMarkers.forEach((marker, key) => {
+        const index = overlay.segmentIndex?.get(key) ?? 0;
+        if (overlay.orientation === 'vertical') {
+          marker.style.left = '50%';
+          marker.style.top = `${(index + 0.5) * step}%`;
+        } else {
+          marker.style.left = `${(index + 0.5) * step}%`;
+          marker.style.top = '50%';
+        }
+      });
+    }
+
+    overlay.element.classList.toggle('is-hidden', !(overlay.revealed || this.revealShips));
+
+    this.updateOverlayPositions();
+    return true;
+  }
+
+  positionShipOverlay(overlay) {
+    if (!overlay || !overlay.coordinates || overlay.coordinates.length === 0 || !this.gridElement) {
+      return;
+    }
+
+    const xs = overlay.coordinates.map((pt) => pt.x);
+    const ys = overlay.coordinates.map((pt) => pt.y);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+
+    const headCell = this.cells.get(`${minX},${minY}`);
+    const tailCell = this.cells.get(`${maxX},${maxY}`);
+    if (!headCell || !tailCell) {
+      return;
+    }
+
+    const gridRect = this.gridElement.getBoundingClientRect();
+    const headRect = headCell.getBoundingClientRect();
+    const tailRect = tailCell.getBoundingClientRect();
+
+    const pad = 1.5;
+    const left = Math.max(0, headRect.left - gridRect.left - pad);
+    const top = Math.max(0, headRect.top - gridRect.top - pad);
+    const right = Math.min(gridRect.width, tailRect.right - gridRect.left + pad);
+    const bottom = Math.min(gridRect.height, tailRect.bottom - gridRect.top + pad);
+
+    overlay.element.style.left = `${left}px`;
+    overlay.element.style.top = `${top}px`;
+    overlay.element.style.width = `${Math.max(0, right - left)}px`;
+    overlay.element.style.height = `${Math.max(0, bottom - top)}px`;
+  }
+
+  updateOverlayPositions() {
+    const scheduleFrame = typeof requestAnimationFrame === 'function'
+      ? requestAnimationFrame
+      : (callback) => setTimeout(callback, 16);
+    const cancelFrame = typeof cancelAnimationFrame === 'function'
+      ? cancelAnimationFrame
+      : clearTimeout;
+
+    if (this.pendingOverlayPositionFrame) {
+      cancelFrame(this.pendingOverlayPositionFrame);
+    }
+    this.pendingOverlayPositionFrame = scheduleFrame(() => {
+      this.pendingOverlayPositionFrame = null;
+      this.shipOverlays.forEach((overlay) => {
+        this.positionShipOverlay(overlay);
+      });
+    });
+  }
+
+  updateOverlayVisibility() {
+    if (this.revealShips) {
+      this.ensureShipOverlaysForReveal();
+    }
+    if (this.shipOverlays.size === 0) {
+      return;
+    }
+    this.shipOverlays.forEach((overlay) => {
+      const shouldShow = overlay.revealed || this.revealShips;
+      overlay.element.classList.toggle('is-hidden', !shouldShow);
+    });
+  }
+
+  ensureShipOverlaysForReveal() {
+    if (!this.overlayLayer || !this.revealShips || this.shipSegments.size === 0) {
+      return;
+    }
+    this.shipSegments.forEach(({ segments, shipName }, shipKey) => {
+      if (!this.shipOverlays.has(shipKey)) {
+        const created = this.createOrUpdateShipOverlay(shipKey, segments, shipName, false);
+        if (created) {
+          segments.forEach((segment) => {
+            const info = this.shipDecor.get(segment.key);
+            if (info) {
+              const updated = {
+                ...info,
+                overlay: true,
+              };
+              this.shipDecor.set(segment.key, updated);
+              const cell = this.cells.get(segment.key);
+              if (cell) {
+                this.decorateCell(cell, updated, 'ship');
+              }
+            }
+          });
+        }
+      }
+    });
+  }
+
+  updateShipOverlayDamage(cellKey, state) {
+    if (!cellKey) {
+      return;
+    }
+    const info = this.shipDecor.get(cellKey);
+    if (!info || !info.shipKey) {
+      return;
+    }
+    const overlay = this.shipOverlays.get(info.shipKey);
+    if (!overlay) {
+      return;
+    }
+
+    if (state === 'ship') {
+      if (overlay.hitMarkers && overlay.hitMarkers.has(cellKey)) {
+        const marker = overlay.hitMarkers.get(cellKey);
+        if (marker) {
+          marker.remove();
+        }
+        overlay.hitMarkers.delete(cellKey);
+      }
+      if (overlay.hits) {
+        overlay.hits.delete(cellKey);
+        if (overlay.hits.size === 0) {
+          overlay.element.classList.remove('ship-overlay-damaged');
+        }
+      }
+      return;
+    }
+
+    if (!overlay.hitMarkers) {
+      overlay.hitMarkers = new Map();
+    }
+    if (!overlay.hits) {
+      overlay.hits = new Set();
+    }
+
+    if (!overlay.hitMarkers.has(cellKey)) {
+      const marker = document.createElement('span');
+      marker.classList.add('ship-overlay-hit');
+      const index = overlay.segmentIndex?.get(cellKey) ?? 0;
+      const length = overlay.length || overlay.cells.length || 1;
+      const step = 100 / length;
+      if (overlay.orientation === 'vertical') {
+        marker.style.left = '50%';
+        marker.style.top = `${(index + 0.5) * step}%`;
+      } else {
+        marker.style.left = `${(index + 0.5) * step}%`;
+        marker.style.top = '50%';
+      }
+      overlay.element.appendChild(marker);
+      overlay.hitMarkers.set(cellKey, marker);
+    }
+
+    overlay.hits.add(cellKey);
+    overlay.element.classList.add('ship-overlay-damaged');
+
+    if (state === 'sunk') {
+      overlay.destroyed = true;
+      overlay.element.classList.add('ship-overlay-destroyed');
+    }
+
+    overlay.revealed = overlay.revealed || this.revealShips || state === 'sunk';
+    this.updateOverlayVisibility();
   }
 
   normalizeShipName(name) {
@@ -3267,6 +3733,8 @@ class GameApp extends HTMLElement {
     this.state = 'lobby';
     this.currentRoom = null;
     this.setWaitingForOpponent(false);
+    this.ownGrid.removeAttribute('reveal-ships');
+    this.targetGrid.removeAttribute('reveal-ships');
     this.turnInfo.textContent = 'Connecting to the lobby...';
     this.enterLobby();
     this.connect();
@@ -3278,6 +3746,8 @@ class GameApp extends HTMLElement {
   prepareSoloMode() {
     this.playerNumber = 1;
     this.opponentConnected = true;
+    this.ownGrid.removeAttribute('reveal-ships');
+    this.targetGrid.removeAttribute('reveal-ships');
     this.addLog('Solo vs AI commander. Deploy your fleet.', 'info');
     this.opponentBadge.textContent = 'AI preparing layout';
     this.opponentBadge.classList.remove('success');
@@ -3441,6 +3911,9 @@ class GameApp extends HTMLElement {
     if (this.audio) {
       this.audio.playSfx('mode');
     }
+
+    this.ownGrid.setAttribute('reveal-ships', 'true');
+    this.targetGrid.setAttribute('reveal-ships', 'true');
 
     const alphaFleet = this.buildRandomFleetLayout();
     const betaFleet = this.buildRandomFleetLayout();
