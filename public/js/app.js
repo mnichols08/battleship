@@ -372,6 +372,7 @@ class BattleGrid extends HTMLElement {
     super();
     this.attachShadow({ mode: 'open' });
     this.cells = new Map();
+    this.shipDecor = new Map();
     this.mode = this.getAttribute('mode') || 'placement';
     this.interactive = true;
     this.render();
@@ -420,7 +421,7 @@ class BattleGrid extends HTMLElement {
           background: rgba(255, 255, 255, 0.04);
           border: 1px solid rgba(78, 220, 255, 0.05);
           cursor: pointer;
-          transition: background 160ms ease, transform 120ms ease, border 160ms ease, box-shadow 160ms ease;
+          transition: background 160ms ease, transform 120ms ease, border 160ms ease, box-shadow 160ms ease, filter 180ms ease;
         }
         :host(.disabled) .cell {
           cursor: not-allowed;
@@ -431,35 +432,216 @@ class BattleGrid extends HTMLElement {
           inset: 0;
           border-radius: inherit;
           opacity: 0;
-          transition: opacity 180ms ease;
+          pointer-events: none;
+          transition: opacity 180ms ease, background 200ms ease;
         }
-        .cell.ship {
-          background: rgba(78, 220, 255, 0.18);
-          border-color: rgba(78, 220, 255, 0.35);
+        .cell.ship,
+        .cell.hit,
+        .cell.sunk {
+          background: rgba(18, 36, 58, 0.7);
+          border-color: rgba(78, 220, 255, 0.28);
+          box-shadow: inset 0 0 0 1px rgba(78, 220, 255, 0.12);
         }
-        :host([mode='target']) .cell.ship {
-          background: rgba(78, 220, 255, 0.05);
-          border-color: rgba(78, 220, 255, 0.05);
-        }
-        .cell.hit {
-          background: rgba(255, 99, 132, 0.25);
-          border-color: rgba(255, 99, 132, 0.5);
-          box-shadow: 0 6px 20px rgba(255, 99, 132, 0.25);
-        }
-        .cell.hit::after {
-          background: radial-gradient(circle at center, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0));
-          opacity: 0.65;
+        :host([mode='target']) .cell.ship,
+        :host([mode='target']) .cell.hit,
+        :host([mode='target']) .cell.sunk {
+          background: rgba(16, 28, 46, 0.6);
+          border-color: rgba(78, 220, 255, 0.16);
         }
         .cell.miss {
           background: rgba(132, 188, 255, 0.16);
           border-color: rgba(132, 188, 255, 0.3);
         }
-        .cell.sunk {
-          background: linear-gradient(135deg, rgba(255, 117, 140, 0.4), rgba(255, 255, 255, 0.12));
+        .cell.hit:not(.ship-segment) {
+          background: rgba(255, 116, 140, 0.28);
+          border-color: rgba(255, 140, 160, 0.55);
+          box-shadow: 0 6px 20px rgba(255, 116, 140, 0.3);
+        }
+        .cell.hit:not(.ship-segment)::after {
+          background: radial-gradient(circle at center, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0));
+          opacity: 0.7;
+        }
+        .cell.sunk:not(.ship-segment) {
+          background: linear-gradient(135deg, rgba(255, 133, 153, 0.45), rgba(255, 255, 255, 0.12));
           border-color: rgba(255, 117, 140, 0.65);
           box-shadow: 0 0 20px rgba(255, 117, 140, 0.35);
         }
-        .cell:hover::after {
+        .cell.sunk:not(.ship-segment)::after {
+          background: radial-gradient(circle at center, rgba(0, 0, 0, 0.45), rgba(0, 0, 0, 0));
+          opacity: 0.6;
+        }
+        .cell.ship-segment {
+          position: relative;
+          --ship-hull-light: rgba(110, 142, 186, 0.96);
+          --ship-hull-dark: rgba(36, 52, 76, 0.95);
+          --ship-stripe: rgba(255, 255, 255, 0.14);
+        }
+        .cell.ship-segment::before {
+          content: '';
+          position: absolute;
+          inset: 4px;
+          border-radius: 10px;
+          background:
+            linear-gradient(160deg, rgba(255, 255, 255, 0.12), rgba(15, 20, 30, 0.35)),
+            linear-gradient(135deg, var(--ship-hull-light), var(--ship-hull-dark));
+          box-shadow:
+            inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+            inset 0 10px 14px rgba(0, 0, 0, 0.35);
+          transition: transform 180ms ease, box-shadow 180ms ease;
+        }
+        .cell.ship-horizontal.ship-segment::before {
+          background:
+            linear-gradient(160deg, rgba(255, 255, 255, 0.12), rgba(15, 20, 30, 0.35)),
+            repeating-linear-gradient(
+              to right,
+              transparent 0,
+              transparent 10px,
+              rgba(255, 255, 255, 0.07) 10px,
+              rgba(255, 255, 255, 0.07) 13px
+            ),
+            linear-gradient(135deg, var(--ship-hull-light), var(--ship-hull-dark));
+        }
+        .cell.ship-vertical.ship-segment::before {
+          background:
+            linear-gradient(160deg, rgba(255, 255, 255, 0.12), rgba(15, 20, 30, 0.35)),
+            repeating-linear-gradient(
+              to bottom,
+              transparent 0,
+              transparent 10px,
+              rgba(255, 255, 255, 0.07) 10px,
+              rgba(255, 255, 255, 0.07) 13px
+            ),
+            linear-gradient(135deg, var(--ship-hull-light), var(--ship-hull-dark));
+        }
+        .cell.ship-horizontal.ship-head::before {
+          border-top-left-radius: 18px;
+          border-bottom-left-radius: 18px;
+        }
+        .cell.ship-horizontal.ship-tail::before {
+          border-top-right-radius: 18px;
+          border-bottom-right-radius: 18px;
+        }
+        .cell.ship-vertical.ship-head::before {
+          border-top-left-radius: 18px;
+          border-top-right-radius: 18px;
+        }
+        .cell.ship-vertical.ship-tail::before {
+          border-bottom-left-radius: 18px;
+          border-bottom-right-radius: 18px;
+        }
+        .cell.ship-single::before {
+          border-radius: 18px;
+        }
+        .cell.ship-segment::after {
+          content: '';
+          position: absolute;
+          inset: 6px;
+          border-radius: 8px;
+          opacity: 0.85;
+          background:
+            radial-gradient(circle at 50% 20%, rgba(255, 255, 255, 0.18), transparent 60%),
+            linear-gradient(90deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0)),
+            repeating-linear-gradient(
+              to right,
+              transparent 0,
+              transparent 8px,
+              rgba(255, 255, 255, 0.08) 8px,
+              rgba(255, 255, 255, 0.08) 9px
+            );
+          pointer-events: none;
+          transition: opacity 200ms ease, background 220ms ease;
+        }
+        .cell.ship-vertical.ship-segment::after {
+          background:
+            radial-gradient(circle at 20% 50%, rgba(255, 255, 255, 0.18), transparent 65%),
+            linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0)),
+            repeating-linear-gradient(
+              to bottom,
+              transparent 0,
+              transparent 8px,
+              rgba(255, 255, 255, 0.08) 8px,
+              rgba(255, 255, 255, 0.08) 9px
+            );
+        }
+        .cell.ship-type-carrier {
+          --ship-hull-light: rgba(126, 178, 255, 0.95);
+          --ship-hull-dark: rgba(27, 46, 86, 0.95);
+          --ship-stripe: rgba(255, 255, 255, 0.2);
+        }
+        .cell.ship-type-battleship {
+          --ship-hull-light: rgba(136, 164, 185, 0.95);
+          --ship-hull-dark: rgba(44, 58, 74, 0.95);
+          --ship-stripe: rgba(255, 255, 255, 0.16);
+        }
+        .cell.ship-type-cruiser {
+          --ship-hull-light: rgba(116, 191, 206, 0.95);
+          --ship-hull-dark: rgba(32, 70, 86, 0.95);
+          --ship-stripe: rgba(255, 255, 255, 0.18);
+        }
+        .cell.ship-type-submarine {
+          --ship-hull-light: rgba(125, 140, 162, 0.95);
+          --ship-hull-dark: rgba(28, 39, 54, 0.95);
+          --ship-stripe: rgba(255, 255, 255, 0.12);
+        }
+        .cell.ship-type-destroyer {
+          --ship-hull-light: rgba(186, 204, 214, 0.95);
+          --ship-hull-dark: rgba(58, 84, 101, 0.95);
+          --ship-stripe: rgba(255, 255, 255, 0.2);
+        }
+        .cell.ship-type-unknown {
+          --ship-hull-light: rgba(150, 168, 188, 0.95);
+          --ship-hull-dark: rgba(54, 70, 92, 0.95);
+          --ship-stripe: rgba(255, 255, 255, 0.14);
+        }
+        .cell.ship-type-target {
+          --ship-hull-light: rgba(165, 186, 210, 0.95);
+          --ship-hull-dark: rgba(52, 71, 96, 0.95);
+          --ship-stripe: rgba(255, 255, 255, 0.2);
+        }
+        .cell.ship-damaged::after {
+          background:
+            radial-gradient(circle at 45% 55%, rgba(255, 116, 80, 0.5), rgba(255, 116, 80, 0) 65%),
+            radial-gradient(circle at 65% 40%, rgba(255, 236, 185, 0.55), rgba(255, 236, 185, 0) 70%),
+            repeating-linear-gradient(
+              to right,
+              transparent 0,
+              transparent 8px,
+              rgba(255, 255, 255, 0.08) 8px,
+              rgba(255, 255, 255, 0.08) 9px
+            );
+          opacity: 1;
+          mix-blend-mode: screen;
+        }
+        .cell.ship-vertical.ship-damaged::after {
+          background:
+            radial-gradient(circle at 55% 45%, rgba(255, 116, 80, 0.5), rgba(255, 116, 80, 0) 65%),
+            radial-gradient(circle at 30% 70%, rgba(255, 236, 185, 0.55), rgba(255, 236, 185, 0) 70%),
+            repeating-linear-gradient(
+              to bottom,
+              transparent 0,
+              transparent 8px,
+              rgba(255, 255, 255, 0.08) 8px,
+              rgba(255, 255, 255, 0.08) 9px
+            );
+        }
+        .cell.ship-destroyed::before {
+          background:
+            linear-gradient(165deg, rgba(25, 26, 29, 0.9), rgba(8, 8, 10, 0.95));
+          box-shadow:
+            inset 0 0 0 1px rgba(0, 0, 0, 0.4),
+            inset 0 0 16px rgba(0, 0, 0, 0.75);
+        }
+        .cell.ship-destroyed::after {
+          background:
+            radial-gradient(circle at 38% 58%, rgba(0, 0, 0, 0.85), rgba(0, 0, 0, 0.3) 55%, transparent 75%),
+            radial-gradient(circle at 70% 42%, rgba(0, 0, 0, 0.75), rgba(0, 0, 0, 0.25) 55%, transparent 72%);
+          opacity: 1;
+        }
+        .cell.ship-destroyed {
+          border-color: rgba(255, 117, 140, 0.5);
+          box-shadow: 0 0 20px rgba(0, 0, 0, 0.4);
+        }
+        .cell:not(.ship-segment):hover::after {
           opacity: 0.12;
         }
         .grid-shell.disabled .cell {
@@ -560,32 +742,161 @@ class BattleGrid extends HTMLElement {
   }
 
   reset() {
+    this.shipDecor.clear();
+    const removable = [
+      'ship',
+      'hit',
+      'miss',
+      'sunk',
+      'ship-segment',
+      'ship-horizontal',
+      'ship-vertical',
+      'ship-head',
+      'ship-tail',
+      'ship-mid',
+      'ship-single',
+      'ship-damaged',
+      'ship-destroyed',
+      'ship-type-carrier',
+      'ship-type-battleship',
+      'ship-type-cruiser',
+      'ship-type-submarine',
+      'ship-type-destroyer',
+      'ship-type-target',
+      'ship-type-unknown',
+    ];
     this.cells.forEach((cell) => {
-      cell.classList.remove('ship', 'hit', 'miss', 'sunk');
+      cell.classList.remove(...removable);
+      cell.removeAttribute('data-ship-type');
     });
   }
 
   setCellState(x, y, state) {
-    const cell = this.cells.get(`${x},${y}`);
+    const key = `${x},${y}`;
+    const cell = this.cells.get(key);
     if (!cell) {
       return;
     }
-    cell.classList.remove('ship', 'hit', 'miss', 'sunk');
-    if (state && state !== 'empty') {
-      cell.classList.add(state);
+    cell.classList.remove(
+      'ship',
+      'hit',
+      'miss',
+      'sunk',
+      'ship-segment',
+      'ship-horizontal',
+      'ship-vertical',
+      'ship-head',
+      'ship-tail',
+      'ship-mid',
+      'ship-single',
+      'ship-damaged',
+      'ship-destroyed',
+      'ship-type-carrier',
+      'ship-type-battleship',
+      'ship-type-cruiser',
+      'ship-type-submarine',
+      'ship-type-destroyer',
+      'ship-type-target',
+      'ship-type-unknown',
+    );
+    cell.removeAttribute('data-ship-type');
+
+    if (!state || state === 'empty') {
+      return;
+    }
+
+    cell.classList.add(state);
+
+    if (['ship', 'hit', 'sunk'].includes(state)) {
+      const info = this.shipDecor.get(key);
+      if (info) {
+        this.decorateCell(cell, info, state);
+      } else if (state === 'hit') {
+        this.decorateCell(
+          cell,
+          {
+            orientation: 'horizontal',
+            segment: 'single',
+            shipType: 'target',
+          },
+          state,
+        );
+      }
     }
   }
 
-  paintShipCells(coordinates) {
-    coordinates.forEach(({ x, y }) => {
-      this.setCellState(x, y, 'ship');
+  paintShipCells(coordinates, shipName = '') {
+    const segments = this.buildShipSegments(coordinates, shipName);
+    segments.forEach(({ point, key, orientation, segment, shipType }) => {
+      this.shipDecor.set(key, { orientation, segment, shipType });
+      this.setCellState(point.x, point.y, 'ship');
     });
   }
 
-  markSunkShip(coordinates) {
-    coordinates.forEach(({ x, y }) => {
-      this.setCellState(x, y, 'sunk');
+  markSunkShip(coordinates, shipName = '') {
+    const segments = this.buildShipSegments(coordinates, shipName);
+    segments.forEach(({ point, key, orientation, segment, shipType }) => {
+      this.shipDecor.set(key, { orientation, segment, shipType });
+      this.setCellState(point.x, point.y, 'sunk');
     });
+  }
+
+  buildShipSegments(coordinates, shipName) {
+    if (!Array.isArray(coordinates) || coordinates.length === 0) {
+      return [];
+    }
+    const normalizedType = this.normalizeShipName(shipName);
+    const orientation = coordinates.length === 1
+      ? 'horizontal'
+      : coordinates.every((pt) => pt.y === coordinates[0].y)
+        ? 'horizontal'
+        : 'vertical';
+    const sorted = [...coordinates].sort((a, b) => (orientation === 'horizontal' ? a.x - b.x : a.y - b.y));
+    return sorted.map((point, index) => {
+      let segment = 'single';
+      if (sorted.length > 1) {
+        if (index === 0) {
+          segment = 'head';
+        } else if (index === sorted.length - 1) {
+          segment = 'tail';
+        } else {
+          segment = 'mid';
+        }
+      }
+      return {
+        point,
+        key: `${point.x},${point.y}`,
+        orientation,
+        segment,
+        shipType: normalizedType,
+      };
+    });
+  }
+
+  decorateCell(cell, info, state) {
+    cell.classList.add('ship', 'ship-segment');
+    cell.classList.add(info.orientation === 'vertical' ? 'ship-vertical' : 'ship-horizontal');
+    cell.classList.add(`ship-${info.segment}`);
+
+    const shipType = info.shipType || 'unknown';
+    cell.classList.add(`ship-type-${shipType}`);
+    cell.dataset.shipType = shipType;
+
+    cell.classList.toggle('ship-damaged', state === 'hit');
+    cell.classList.toggle('ship-destroyed', state === 'sunk');
+    if (state === 'ship') {
+      cell.classList.remove('ship-damaged', 'ship-destroyed');
+    }
+  }
+
+  normalizeShipName(name) {
+    if (!name || typeof name !== 'string') {
+      return 'unknown';
+    }
+    return name
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-');
   }
 }
 
@@ -1626,8 +1937,8 @@ class GameApp extends HTMLElement {
 
     this.ownGrid.reset();
     this.targetGrid.reset();
-    alphaFleet.forEach((ship) => this.ownGrid.paintShipCells(ship.coordinates));
-    betaFleet.forEach((ship) => this.targetGrid.paintShipCells(ship.coordinates));
+  alphaFleet.forEach((ship) => this.ownGrid.paintShipCells(ship.coordinates, ship.name));
+  betaFleet.forEach((ship) => this.targetGrid.paintShipCells(ship.coordinates, ship.name));
 
     this.addLog(`${this.localGame.names[this.localGame.turn]} has the initiative.`, 'info');
     this.turnInfo.textContent = `${this.localGame.names[this.localGame.turn]} is lining up the first volley.`;
@@ -1686,7 +1997,7 @@ class GameApp extends HTMLElement {
     const grid = defenderIndex === 1 ? this.targetGrid : this.ownGrid;
     grid.setCellState(target.x, target.y, outcome === 'sunk' ? 'sunk' : outcome);
     if (sunkShip) {
-      grid.markSunkShip(sunkShip.coordinates);
+      grid.markSunkShip(sunkShip.coordinates, sunkShip.name);
     }
 
     const coordLabel = this.prettyCoord(target.x, target.y);
@@ -2009,7 +2320,7 @@ class GameApp extends HTMLElement {
     if (payload.outcome === 'hit' || payload.outcome === 'sunk') {
       this.targetGrid.setCellState(payload.x, payload.y, payload.outcome === 'sunk' ? 'sunk' : 'hit');
       if (payload.ship && payload.ship.coordinates) {
-        this.targetGrid.markSunkShip(payload.ship.coordinates);
+        this.targetGrid.markSunkShip(payload.ship.coordinates, payload.ship.name);
       }
       this.addLog(`Direct hit at ${this.prettyCoord(payload.x, payload.y)}${payload.ship ? ` (${payload.ship.name})` : ''}.`, 'success');
     } else {
@@ -2036,7 +2347,7 @@ class GameApp extends HTMLElement {
     if (payload.outcome === 'hit' || payload.outcome === 'sunk') {
       this.ownGrid.setCellState(payload.x, payload.y, payload.outcome === 'sunk' ? 'sunk' : 'hit');
       if (payload.ship && payload.ship.coordinates) {
-        this.ownGrid.markSunkShip(payload.ship.coordinates);
+        this.ownGrid.markSunkShip(payload.ship.coordinates, payload.ship.name);
       }
       this.addLog(`Incoming hit at ${this.prettyCoord(payload.x, payload.y)}.`, 'error');
     } else {
@@ -2099,7 +2410,7 @@ class GameApp extends HTMLElement {
 
     coords.forEach((point) => this.occupiedCells.add(`${point.x},${point.y}`));
     this.placedShips.push({ name: ship.name, length: ship.length, coordinates: coords });
-    this.ownGrid.paintShipCells(coords);
+  this.ownGrid.paintShipCells(coords, ship.name);
     if (this.audio) {
       this.audio.playSfx('place');
     }
@@ -2137,7 +2448,7 @@ class GameApp extends HTMLElement {
     this.resetPlacement();
     placements.forEach((ship) => {
       ship.coordinates.forEach((point) => this.occupiedCells.add(`${point.x},${point.y}`));
-      this.ownGrid.paintShipCells(ship.coordinates);
+  this.ownGrid.paintShipCells(ship.coordinates, ship.name);
     });
     this.placedShips = placements.map((ship) => ({
       name: ship.name,
