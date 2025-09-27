@@ -3541,8 +3541,15 @@ class GameApp extends HTMLElement {
       return;
     }
 
-    this.localGame.turn = defenderIndex;
-    this.turnInfo.textContent = `${this.localGame.names[this.localGame.turn]} prepares to return fire.`;
+    if (outcome === 'miss') {
+      this.localGame.turn = defenderIndex;
+      this.turnInfo.textContent = `${this.localGame.names[this.localGame.turn]} prepares to return fire.`;
+    } else if (outcome === 'hit') {
+      this.turnInfo.textContent = `${attackerName} lines up another volley.`;
+    } else {
+      this.turnInfo.textContent = `${attackerName} keeps the initiative after sinking ${defenderName}'s ${sunkShip.name}.`;
+    }
+
     this.startSpectatorMatch();
   }
 
