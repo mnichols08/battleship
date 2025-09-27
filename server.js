@@ -516,8 +516,17 @@ class GameManager {
     this.chatHistory = new Map();
     this.chatMetadata = new Map();
     this.chatHistoryLimit = 80;
-    this.ensureChatChannel('lobby', { name: 'Lobby Comms' });
-  this.ensureChatChannel('global', { name: 'Global Comms' });
+    this.ensureChatChannel('global', { name: 'Command Deck' });
+    this.ensureChatChannel('lobby', { name: 'Ready Room' });
+    const welcomeId = typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `system-${Date.now().toString(16)}-${Math.random().toString(16).slice(2, 8)}`;
+    this.appendChatMessage('global', {
+      id: welcomeId,
+      author: 'Fleet HQ',
+      text: 'Welcome to the Command Deck. Use this channel to recruit opponents and coordinate battles.',
+      timestamp: Date.now(),
+    });
     this.leaderboards = {
       pvp: new Map(),
       solo: new Map(),

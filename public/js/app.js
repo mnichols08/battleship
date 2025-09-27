@@ -1855,14 +1855,15 @@ class GameApp extends HTMLElement {
           position: fixed;
           right: 28px;
           bottom: 28px;
-          width: min(320px, calc(100vw - 36px));
-          background: rgba(12, 22, 38, 0.92);
-          border-radius: 18px;
-          padding: 16px;
+          width: min(340px, calc(100vw - 36px));
+          background: linear-gradient(160deg, rgba(12, 22, 38, 0.96), rgba(8, 18, 32, 0.92));
+          border-radius: 20px;
+          padding: 18px;
           display: grid;
-          grid-template-rows: auto 1fr auto;
-          gap: 12px;
-          box-shadow: 0 18px 44px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(78, 220, 255, 0.14);
+          grid-template-rows: auto auto 1fr auto;
+          gap: 14px;
+          box-shadow: 0 22px 54px rgba(0, 0, 0, 0.48), inset 0 0 0 1px rgba(78, 220, 255, 0.18);
+          backdrop-filter: blur(20px);
           z-index: 980;
         }
         .chat-panel[hidden] {
@@ -1870,10 +1871,11 @@ class GameApp extends HTMLElement {
         }
         .chat-panel.collapsed {
           grid-template-rows: auto;
-          padding-bottom: 12px;
+          padding-bottom: 14px;
         }
         .chat-panel.collapsed .chat-messages,
-        .chat-panel.collapsed .chat-form {
+        .chat-panel.collapsed .chat-form,
+        .chat-panel.collapsed .chat-channel-tabs {
           display: none;
         }
         .chat-header {
@@ -1895,6 +1897,8 @@ class GameApp extends HTMLElement {
         .chat-subtitle {
           font-size: 12px;
           color: var(--text-secondary);
+          max-width: 220px;
+          line-height: 1.35;
         }
         .chat-header-actions {
           display: flex;
@@ -1924,12 +1928,62 @@ class GameApp extends HTMLElement {
           font-size: 13px;
           min-width: 0;
         }
+        .chat-channel-tabs {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 4px;
+          border-radius: 14px;
+          background: rgba(8, 16, 28, 0.78);
+          box-shadow: inset 0 0 0 1px rgba(78, 220, 255, 0.12);
+        }
+        .chat-channel-tabs[hidden] {
+          display: none;
+        }
+        .chat-channel-button {
+          position: relative;
+          padding: 8px 12px;
+          border-radius: 10px;
+          font-size: 12px;
+          letter-spacing: 0.35px;
+          text-transform: uppercase;
+          background: rgba(20, 34, 56, 0.55);
+          border: 1px solid transparent;
+          color: rgba(218, 235, 255, 0.82);
+          transition: background 120ms ease, transform 120ms ease, border-color 120ms ease;
+        }
+        .chat-channel-button:hover {
+          transform: translateY(-1px);
+          border-color: rgba(78, 220, 255, 0.22);
+        }
+        .chat-channel-button.active {
+          background: linear-gradient(130deg, rgba(78, 220, 255, 0.42), rgba(78, 220, 255, 0.22));
+          color: rgba(12, 22, 38, 0.95);
+          border-color: rgba(78, 220, 255, 0.6);
+          box-shadow: 0 6px 16px rgba(78, 220, 255, 0.28);
+        }
+        .chat-channel-button.badge::after {
+          content: attr(data-count);
+          position: absolute;
+          top: -6px;
+          right: -6px;
+          min-width: 18px;
+          height: 18px;
+          padding: 0 5px;
+          border-radius: 999px;
+          background: rgba(255, 103, 133, 0.92);
+          color: #fff;
+          font-size: 11px;
+          font-weight: 600;
+          display: grid;
+          place-items: center;
+        }
         .chat-messages {
-          max-height: 260px;
+          max-height: 268px;
           overflow-y: auto;
           display: grid;
           gap: 8px;
-          padding-right: 4px;
+          padding-right: 6px;
         }
         .chat-messages::-webkit-scrollbar {
           width: 6px;
@@ -1938,14 +1992,34 @@ class GameApp extends HTMLElement {
           background: rgba(78, 220, 255, 0.28);
           border-radius: 8px;
         }
+        .chat-empty {
+          padding: 18px 14px;
+          border-radius: 12px;
+          background: rgba(16, 28, 46, 0.6);
+          border: 1px dashed rgba(78, 220, 255, 0.24);
+          color: rgba(200, 219, 255, 0.72);
+          font-size: 12px;
+          text-align: center;
+          line-height: 1.5;
+        }
         .chat-message {
           display: grid;
           gap: 4px;
           font-size: 13px;
-          padding: 8px 10px;
-          border-radius: 12px;
-          background: rgba(16, 28, 46, 0.72);
+          padding: 9px 12px;
+          border-radius: 13px;
+          background: rgba(16, 28, 46, 0.74);
           border-left: 3px solid rgba(78, 220, 255, 0.38);
+          box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
+        }
+        .chat-message-own {
+          background: linear-gradient(135deg, rgba(78, 220, 255, 0.45), rgba(78, 220, 255, 0.22));
+          border-left-color: rgba(12, 22, 38, 0.92);
+          color: rgba(10, 20, 24, 0.92);
+        }
+        .chat-message-system {
+          border-left-color: rgba(255, 193, 84, 0.7);
+          background: rgba(32, 24, 8, 0.72);
         }
         .chat-meta {
           display: flex;
@@ -1971,10 +2045,10 @@ class GameApp extends HTMLElement {
         }
         .chat-form input {
           flex: 1;
-          padding: 10px 12px;
-          border-radius: 10px;
-          border: 1px solid rgba(78, 220, 255, 0.24);
-          background: rgba(8, 16, 28, 0.85);
+          padding: 10px 14px;
+          border-radius: 12px;
+          border: 1px solid rgba(78, 220, 255, 0.28);
+          background: rgba(8, 16, 28, 0.88);
           color: var(--text-primary);
           font-size: 13px;
         }
@@ -2543,9 +2617,10 @@ class GameApp extends HTMLElement {
               <button type="button" id="chatToggleBtn" aria-expanded="true" aria-label="Collapse chat">−</button>
             </div>
           </div>
+          <div class="chat-channel-tabs" id="chatChannelTabs" role="tablist"></div>
           <div class="chat-messages" id="chatMessages" role="log" aria-live="polite"></div>
           <form id="chatForm" class="chat-form">
-            <input id="chatInput" type="text" maxlength="280" placeholder="Message the lobby…" autocomplete="off" />
+            <input id="chatInput" type="text" maxlength="280" placeholder="Broadcast to the fleet…" autocomplete="off" />
             <button id="chatSendBtn" type="submit">Send</button>
           </form>
         </aside>
@@ -2633,10 +2708,13 @@ class GameApp extends HTMLElement {
   createChatState() {
     return {
       scope: 'lobby',
+      activeScope: 'global',
       roomId: null,
       roomName: '',
+      global: { messages: [] },
       lobby: { messages: [] },
       rooms: new Map(),
+      available: ['global'],
       collapsed: false,
       connection: 'offline',
     };
@@ -2855,6 +2933,7 @@ class GameApp extends HTMLElement {
     }
 
     this.updateChatVisibility();
+    this.renderChatChannels();
     this.updateChatContextUI();
     this.renderChatMessages();
     this.updateChatInputState();
@@ -2868,26 +2947,156 @@ class GameApp extends HTMLElement {
     this.chatPanel.hidden = false;
   }
 
+  getAvailableChatScopes() {
+    if (!this.chat) {
+      return ['global'];
+    }
+    const raw = Array.isArray(this.chat.available)
+      ? this.chat.available
+      : this.chat.available instanceof Set
+        ? Array.from(this.chat.available)
+        : [];
+    const scopes = [];
+    const pushUnique = (value) => {
+      if (!scopes.includes(value)) {
+        scopes.push(value);
+      }
+    };
+    pushUnique('global');
+    raw.forEach((scope) => {
+      const normalized = scope === 'room' ? 'room' : scope === 'lobby' ? 'lobby' : 'global';
+      if (normalized === 'room' && (!this.chat || !this.chat.roomId)) {
+        return;
+      }
+      pushUnique(normalized);
+    });
+    return scopes;
+  }
+
+  getChatScopeLabel(scope) {
+    const normalized = scope === 'room' ? 'room' : scope === 'lobby' ? 'lobby' : 'global';
+    if (normalized === 'global') {
+      return 'Command Deck';
+    }
+    if (normalized === 'lobby') {
+      return 'Ready Room';
+    }
+    if (normalized === 'room') {
+      return this.chat && this.chat.roomName
+        ? this.chat.roomName
+        : 'Battle Channel';
+    }
+    return 'Channel';
+  }
+
+  getChatScopeMeta(scope) {
+    const normalized = scope === 'room' ? 'room' : scope === 'lobby' ? 'lobby' : 'global';
+    const roomName = this.chat && typeof this.chat.roomName === 'string' ? this.chat.roomName : '';
+    if (normalized === 'room') {
+      const titled = roomName ? `${roomName} Ops` : 'Battle Comms';
+      return {
+        scope: 'room',
+        title: titled,
+        subtitle: roomName
+          ? `Coordinate with commanders inside ${roomName}.`
+          : 'Strategize directly with your opponent.',
+        placeholder: roomName ? `Message ${roomName}…` : 'Message your opponent…',
+        empty: 'No chatter yet. Share your battle plan.',
+      };
+    }
+    if (normalized === 'lobby') {
+      return {
+        scope: 'lobby',
+        title: 'Ready Room',
+        subtitle: 'Organize matches with commanders staging in the lobby.',
+        placeholder: 'Rally the lobby…',
+        empty: 'The ready room is quiet. Invite someone to a skirmish.',
+      };
+    }
+    return {
+      scope: 'global',
+      title: 'Command Deck',
+      subtitle: 'Broadcast to every commander connected to the server.',
+      placeholder: 'Broadcast to the fleet…',
+      empty: 'The command deck is calm. Hail the fleet to find your next match.',
+    };
+  }
+
+  setActiveChatScope(scope, options = {}) {
+    if (!this.chat) {
+      return;
+    }
+    const available = this.getAvailableChatScopes();
+    const normalized = scope === 'room' ? 'room' : scope === 'lobby' ? 'lobby' : 'global';
+    let targetScope = normalized;
+    if (!available.includes(targetScope)) {
+      if (available.includes(this.chat.scope) && (this.chat.scope !== 'room' || this.chat.roomId)) {
+        targetScope = this.chat.scope;
+      } else if (available.length > 0) {
+        targetScope = available[0];
+      } else {
+        targetScope = 'global';
+      }
+    }
+    if (targetScope === 'room' && (!this.chat.roomId || !available.includes('room'))) {
+      targetScope = available.includes('lobby') ? 'lobby' : 'global';
+    }
+    const previousScope = this.chat.activeScope;
+    this.chat.activeScope = targetScope;
+    this.renderChatChannels();
+    this.updateChatContextUI();
+    this.renderChatMessages();
+    this.updateChatInputState();
+    if (options.focusInput && this.chatInput && !this.chatInput.disabled) {
+      requestAnimationFrame(() => {
+        this.chatInput.focus();
+      });
+    }
+  }
+
+  renderChatChannels() {
+    if (!this.chatChannels) {
+      return;
+    }
+    const scopes = this.getAvailableChatScopes();
+    this.chatChannels.hidden = scopes.length <= 1;
+    this.chatChannels.innerHTML = '';
+    scopes.forEach((scope) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'chat-channel-button';
+      if (scope === this.chat.activeScope) {
+        button.classList.add('active');
+      }
+      button.dataset.scope = scope;
+      button.setAttribute('role', 'tab');
+      button.setAttribute('aria-selected', scope === this.chat.activeScope ? 'true' : 'false');
+      button.textContent = this.getChatScopeLabel(scope);
+      const meta = this.getChatScopeMeta(scope);
+      if (meta && meta.subtitle) {
+        button.title = meta.subtitle;
+      }
+      button.addEventListener('click', () => {
+        this.setActiveChatScope(scope, { focusInput: true });
+      });
+      this.chatChannels.appendChild(button);
+    });
+  }
+
   updateChatContextUI() {
     if (!this.chatPanel) {
       return;
     }
-    const scope = this.chat.scope === 'room' && this.chat.roomId ? 'room' : 'lobby';
-    if (scope === 'room' && this.chat.roomId && !this.chat.rooms.has(this.chat.roomId)) {
+    const activeScope = this.chat && this.chat.activeScope ? this.chat.activeScope : 'global';
+    if (activeScope === 'room' && this.chat.roomId && !this.chat.rooms.has(this.chat.roomId)) {
       this.chat.rooms.set(this.chat.roomId, []);
     }
+    const meta = this.getChatScopeMeta(activeScope);
     if (this.chatTitle) {
-      if (scope === 'room') {
-        const roomName = this.chat.roomName ? `${this.chat.roomName} Comms` : 'Ready Room Comms';
-        this.chatTitle.textContent = roomName;
-      } else {
-        this.chatTitle.textContent = 'Lobby Comms';
-      }
+      this.chatTitle.textContent = meta.title;
     }
     if (this.chatSubtitle) {
-      this.chatSubtitle.textContent = scope === 'room'
-        ? 'Chat with commanders in your room.'
-        : 'Chat with commanders in the lobby.';
+      this.chatSubtitle.textContent = meta.subtitle;
     }
     if (this.chatToggleBtn) {
       this.chatToggleBtn.setAttribute('aria-expanded', String(!this.chat.collapsed));
@@ -2905,20 +3114,30 @@ class GameApp extends HTMLElement {
     if (!this.chatInput) {
       return;
     }
-    if (this.chat.scope === 'room' && this.chat.roomId) {
-      this.chatInput.placeholder = this.chat.roomName
-        ? `Message ${this.chat.roomName}…`
-        : 'Message your opponent…';
-    } else {
-      this.chatInput.placeholder = 'Message the lobby…';
+    if (this.chat.connection !== 'online') {
+      this.chatInput.placeholder = 'Connecting to comms…';
+      return;
     }
+    if (!this.hasCommanderName()) {
+      this.chatInput.placeholder = 'Set your commander name to chat.';
+      return;
+    }
+    const meta = this.getChatScopeMeta(this.chat.activeScope);
+    this.chatInput.placeholder = meta.placeholder;
   }
 
   getActiveChatMessages() {
-    if (this.chat.scope === 'room' && this.chat.roomId) {
+    if (!this.chat) {
+      return [];
+    }
+    const scope = this.chat.activeScope;
+    if (scope === 'room' && this.chat.roomId) {
       return this.chat.rooms.get(this.chat.roomId) || [];
     }
-    return this.chat.lobby.messages;
+    if (scope === 'lobby') {
+      return this.chat.lobby.messages;
+    }
+    return this.chat.global.messages;
   }
 
   renderChatMessages() {
@@ -2927,14 +3146,24 @@ class GameApp extends HTMLElement {
     }
     const messages = this.getActiveChatMessages();
     this.chatMessages.innerHTML = '';
+    if (!messages || messages.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'chat-empty';
+      const meta = this.getChatScopeMeta(this.chat.activeScope);
+      empty.textContent = meta.empty || 'No transmissions yet.';
+      this.chatMessages.appendChild(empty);
+      return;
+    }
+    const fragment = document.createDocumentFragment();
     messages.forEach((msg) => {
       const normalized = this.normalizeChatMessage(msg);
       if (!normalized) {
         return;
       }
       const element = this.buildChatMessageElement(normalized);
-      this.chatMessages.appendChild(element);
+      fragment.appendChild(element);
     });
+    this.chatMessages.appendChild(fragment);
     this.scrollChatToBottom();
   }
 
@@ -2948,6 +3177,14 @@ class GameApp extends HTMLElement {
   buildChatMessageElement(message) {
     const container = document.createElement('div');
     container.className = 'chat-message';
+    const commanderName = this.profile && typeof this.profile.name === 'string' ? this.profile.name.trim() : '';
+    if (commanderName && message.author && message.author.trim().toLowerCase() === commanderName.toLowerCase()) {
+      container.classList.add('chat-message-own');
+    }
+    const systemAuthors = ['Fleet HQ', 'System'];
+    if (systemAuthors.includes((message.author || '').trim())) {
+      container.classList.add('chat-message-system');
+    }
 
     const meta = document.createElement('div');
     meta.className = 'chat-meta';
@@ -2977,6 +3214,10 @@ class GameApp extends HTMLElement {
     if (!this.chatMessages) {
       return;
     }
+    const emptyState = this.chatMessages.querySelector('.chat-empty');
+    if (emptyState) {
+      emptyState.remove();
+    }
     const normalized = this.normalizeChatMessage(message);
     if (!normalized) {
       return;
@@ -2994,7 +3235,21 @@ class GameApp extends HTMLElement {
     if (!value) {
       return;
     }
-    const scope = this.chat.scope === 'room' && this.chat.roomId ? 'room' : 'lobby';
+    if (this.chat.connection !== 'online') {
+      return;
+    }
+    if (!this.hasCommanderName()) {
+      this.promptCommanderName({ focus: true });
+      return;
+    }
+    const available = this.getAvailableChatScopes();
+    let scope = this.chat.activeScope;
+    if (!available.includes(scope)) {
+      scope = available.includes('room') ? 'room' : available.includes('lobby') ? 'lobby' : 'global';
+    }
+    if (scope === 'room' && !this.chat.roomId) {
+      scope = available.includes('lobby') ? 'lobby' : 'global';
+    }
     this.send({ type: 'chatSend', scope, message: value });
     this.chatInput.value = '';
   }
@@ -3019,15 +3274,19 @@ class GameApp extends HTMLElement {
     if (!this.chatInput) {
       return;
     }
-    const canChat = this.chat.connection === 'online';
+    const connected = this.chat.connection === 'online';
+    const named = this.hasCommanderName();
+    const canChat = connected && named;
     this.chatInput.disabled = !canChat;
     if (this.chatSendBtn) {
       this.chatSendBtn.disabled = !canChat;
     }
+    this.updateChatInputPlaceholder();
   }
 
   resetChatState() {
     this.chat = this.createChatState();
+    this.renderChatChannels();
     this.updateChatContextUI();
     this.renderChatMessages();
     this.setChatConnectionState('offline');
@@ -3056,6 +3315,16 @@ class GameApp extends HTMLElement {
     if (!normalized) {
       return;
     }
+    if (channelId === 'global') {
+      if (!this.chat.global || !Array.isArray(this.chat.global.messages)) {
+        this.chat.global = { messages: [] };
+      }
+      this.chat.global.messages.push(normalized);
+      if (this.chat.global.messages.length > 160) {
+        this.chat.global.messages.shift();
+      }
+      return;
+    }
     if (channelId === 'lobby') {
       this.chat.lobby.messages.push(normalized);
       if (this.chat.lobby.messages.length > 120) {
@@ -3075,19 +3344,44 @@ class GameApp extends HTMLElement {
 
   applyChatContext(payload) {
     this.setChatConnectionState('online');
-    const scope = payload && payload.scope === 'room' ? 'room' : 'lobby';
+    const requestedScope = payload && typeof payload.scope === 'string' ? payload.scope.toLowerCase() : 'lobby';
+    const scope = requestedScope === 'room' ? 'room' : requestedScope === 'global' ? 'global' : 'lobby';
+    const availableRaw = Array.isArray(payload && payload.available) ? payload.available : [];
+    const normalizedAvailable = Array.from(new Set(['global', ...availableRaw.map((entry) => {
+      if (typeof entry !== 'string') {
+        return null;
+      }
+      const value = entry.toLowerCase();
+      if (value === 'room' || value === 'lobby' || value === 'global') {
+        return value;
+      }
+      return null;
+    }).filter(Boolean)]));
+    const scopeOrder = ['global', 'lobby', 'room'];
+    normalizedAvailable.sort((a, b) => scopeOrder.indexOf(a) - scopeOrder.indexOf(b));
+    this.chat.available = normalizedAvailable;
+
     if (scope === 'room') {
-      const roomId = typeof payload.roomId === 'string' && payload.roomId ? payload.roomId : this.chat.roomId;
-      this.chat.scope = 'room';
-      this.chat.roomId = roomId;
-      this.chat.roomName = typeof payload.roomName === 'string' ? payload.roomName : this.chat.roomName;
+      const roomId = typeof payload?.roomId === 'string' && payload.roomId ? payload.roomId : null;
+      if (roomId) {
+        this.chat.scope = 'room';
+        this.chat.roomId = roomId;
+        this.chat.roomName = typeof payload.roomName === 'string' ? payload.roomName : this.chat.roomName;
+      } else {
+        this.chat.scope = 'lobby';
+        this.chat.roomId = null;
+        this.chat.roomName = '';
+      }
     } else {
       this.chat.scope = 'lobby';
-      this.chat.roomId = null;
-      this.chat.roomName = '';
+      if (scope !== 'room') {
+        this.chat.roomId = null;
+        this.chat.roomName = '';
+      }
     }
-    this.updateChatContextUI();
-    this.renderChatMessages();
+
+    const desiredScope = this.chat.activeScope || (this.chat.scope === 'room' ? 'room' : 'global');
+    this.setActiveChatScope(desiredScope);
   }
 
   applyChatHistory(payload) {
@@ -3095,21 +3389,28 @@ class GameApp extends HTMLElement {
     if (!payload || !Array.isArray(payload.messages)) {
       return;
     }
-    if (payload.scope === 'room') {
+    const scope = typeof payload.scope === 'string' ? payload.scope.toLowerCase() : 'lobby';
+    const messages = payload.messages.map((msg) => this.normalizeChatMessage(msg)).filter(Boolean);
+    if (scope === 'room') {
       const roomId = typeof payload.roomId === 'string' ? payload.roomId : null;
       if (!roomId) {
         return;
       }
-      const messages = payload.messages.map((msg) => this.normalizeChatMessage(msg)).filter(Boolean);
       this.chat.rooms.set(roomId, messages);
-      if (this.chat.scope === 'room' && this.chat.roomId === roomId) {
+      if (this.chat.activeScope === 'room' && this.chat.roomId === roomId) {
         this.renderChatMessages();
       }
       return;
     }
-    const messages = payload.messages.map((msg) => this.normalizeChatMessage(msg)).filter(Boolean);
+    if (scope === 'global') {
+      this.chat.global.messages = messages;
+      if (this.chat.activeScope === 'global') {
+        this.renderChatMessages();
+      }
+      return;
+    }
     this.chat.lobby.messages = messages;
-    if (this.chat.scope === 'lobby') {
+    if (this.chat.activeScope === 'lobby') {
       this.renderChatMessages();
     }
   }
@@ -3119,19 +3420,27 @@ class GameApp extends HTMLElement {
     if (!payload || !payload.message) {
       return;
     }
-    if (payload.scope === 'room') {
+    const scope = typeof payload.scope === 'string' ? payload.scope.toLowerCase() : 'lobby';
+    if (scope === 'room') {
       const roomId = typeof payload.roomId === 'string' ? payload.roomId : null;
       if (!roomId) {
         return;
       }
       this.addChatMessageToChannel(roomId, payload.message);
-      if (this.chat.scope === 'room' && this.chat.roomId === roomId) {
+      if (this.chat.activeScope === 'room' && this.chat.roomId === roomId) {
+        this.appendChatMessageToUI(payload.message);
+      }
+      return;
+    }
+    if (scope === 'global') {
+      this.addChatMessageToChannel('global', payload.message);
+      if (this.chat.activeScope === 'global') {
         this.appendChatMessageToUI(payload.message);
       }
       return;
     }
     this.addChatMessageToChannel('lobby', payload.message);
-    if (this.chat.scope === 'lobby') {
+    if (this.chat.activeScope === 'lobby') {
       this.appendChatMessageToUI(payload.message);
     }
   }
@@ -3290,6 +3599,7 @@ class GameApp extends HTMLElement {
       this.setProfileStatus('Call sign updated.', 'success');
       this.updateProfileUI();
       this.updateStatus();
+      this.updateChatInputState();
     }
   }
 
@@ -4417,6 +4727,7 @@ class GameApp extends HTMLElement {
     this.chatInput = this.shadowRoot.querySelector('#chatInput');
     this.chatSendBtn = this.shadowRoot.querySelector('#chatSendBtn');
     this.chatToggleBtn = this.shadowRoot.querySelector('#chatToggleBtn');
+  this.chatChannels = this.shadowRoot.querySelector('#chatChannelTabs');
     this.chatStatusDot = this.shadowRoot.querySelector('#chatStatusDot');
 
     this.targetGrid.setInteractive(false);
@@ -4900,6 +5211,7 @@ class GameApp extends HTMLElement {
       playerBoard: null,
       aiTargetQueue: [],
       aiTargetSet: new Set(),
+      aiResolvedCells: new Set(),
     };
     this.updateHint();
     this.updateControls();
@@ -4923,7 +5235,7 @@ class GameApp extends HTMLElement {
     this.handleServerEvent({ type: 'layoutAccepted' });
     this.localGame.playerBoard = this.createBoardState(this.placedShips);
     this.localGame.aiBoard = this.createBoardState(aiFleet);
-    this.resetAiTargeting();
+  this.resetAiTargeting({ preserveResolved: false });
     this.handleServerEvent({ type: 'opponentReady' });
     const youStart = Math.random() >= 0.5;
     this.handleServerEvent({ type: 'gameStart', youStart });
@@ -4995,6 +5307,9 @@ class GameApp extends HTMLElement {
 
     const board = this.localGame.playerBoard;
     let target = this.popNextAiTarget(board);
+    if (!target) {
+      target = this.chooseStrategicTarget(board);
+    }
     if (!target) {
       target = this.chooseRandomTarget(board);
     }
@@ -5748,12 +6063,44 @@ class GameApp extends HTMLElement {
     return x >= 0 && x < 10 && y >= 0 && y < 10;
   }
 
-  resetAiTargeting() {
+  resetAiTargeting(options = {}) {
     if (!this.localGame || this.localGame.type !== 'solo') {
       return;
     }
     this.localGame.aiTargetQueue = [];
     this.localGame.aiTargetSet = new Set();
+    const preserve = options.preserveResolved !== undefined ? options.preserveResolved : true;
+    if (preserve) {
+      if (!(this.localGame.aiResolvedCells instanceof Set)) {
+        this.localGame.aiResolvedCells = new Set();
+      }
+    } else {
+      this.localGame.aiResolvedCells = new Set();
+    }
+  }
+
+  getAiResolvedCells() {
+    if (!this.localGame || this.localGame.type !== 'solo') {
+      return new Set();
+    }
+    if (!(this.localGame.aiResolvedCells instanceof Set)) {
+      this.localGame.aiResolvedCells = new Set();
+    }
+    return this.localGame.aiResolvedCells;
+  }
+
+  markAiResolvedShip(ship) {
+    if (!this.localGame || this.localGame.type !== 'solo' || !ship || !Array.isArray(ship.coordinates)) {
+      return;
+    }
+    const resolved = this.getAiResolvedCells();
+    ship.coordinates.forEach((coord) => {
+      const x = Number(coord.x);
+      const y = Number(coord.y);
+      if (Number.isInteger(x) && Number.isInteger(y) && this.isWithinBounds(x, y)) {
+        resolved.add(`${x},${y}`);
+      }
+    });
   }
 
   enqueueAiTarget(board, x, y) {
@@ -5841,6 +6188,7 @@ class GameApp extends HTMLElement {
       return;
     }
     if (outcome === 'sunk') {
+      this.markAiResolvedShip(ship);
       this.resetAiTargeting();
       return;
     }
@@ -5902,6 +6250,91 @@ class GameApp extends HTMLElement {
       return null;
     }
     return candidates[Math.floor(Math.random() * candidates.length)];
+  }
+
+  chooseStrategicTarget(board) {
+    if (!board || !board.shots) {
+      return null;
+    }
+    const resolved = this.getAiResolvedCells();
+    const candidates = [];
+    for (let y = 0; y < 10; y += 1) {
+      for (let x = 0; x < 10; x += 1) {
+        const key = `${x},${y}`;
+        if (board.shots.has(key)) {
+          continue;
+        }
+        let score = (x + y) % 2 === 0 ? 4 : 2.2;
+        const centerBias = 4.5 - Math.hypot(x - 4.5, y - 4.5);
+        score += Math.max(centerBias, 0) * 0.18;
+
+        const cardinal = [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ];
+        cardinal.forEach(([dx, dy]) => {
+          let steps = 1;
+          while (steps <= 4) {
+            const nx = x + dx * steps;
+            const ny = y + dy * steps;
+            if (!this.isWithinBounds(nx, ny)) {
+              break;
+            }
+            const adjacentKey = `${nx},${ny}`;
+            const result = board.shots.get(adjacentKey);
+            if (result === 'hit' && !resolved.has(adjacentKey)) {
+              score += steps === 1 ? 5.5 : 2.4 / steps;
+              steps += 1;
+              continue;
+            }
+            if (result === 'miss' || resolved.has(adjacentKey)) {
+              score -= 0.6 / steps;
+            }
+            break;
+          }
+        });
+
+        const diagonals = [
+          [1, 1],
+          [1, -1],
+          [-1, 1],
+          [-1, -1],
+        ];
+        diagonals.forEach(([dx, dy]) => {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (!this.isWithinBounds(nx, ny)) {
+            return;
+          }
+          const diagKey = `${nx},${ny}`;
+          if (board.shots.get(diagKey) === 'hit' && !resolved.has(diagKey)) {
+            score += 1.7;
+          }
+        });
+
+        candidates.push({ x, y, score });
+      }
+    }
+
+    if (candidates.length === 0) {
+      return null;
+    }
+
+    let bestScore = -Infinity;
+    candidates.forEach((candidate) => {
+      if (candidate.score > bestScore) {
+        bestScore = candidate.score;
+      }
+    });
+
+    const elite = candidates.filter((candidate) => candidate.score >= bestScore - 0.75);
+    if (elite.length === 0) {
+      return null;
+    }
+    const choice = elite[Math.floor(Math.random() * elite.length)];
+    return choice ? { x: choice.x, y: choice.y } : null;
   }
 
   allShipsSunk(board) {
