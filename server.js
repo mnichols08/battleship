@@ -432,13 +432,15 @@ class Game {
     }
 
     const allSunk = opponentBoard.ships.every((ship) => ship.hits.size === ship.length);
+    const nextTurnIndex = allSunk ? null : result === 'miss' ? opponentIndex : player.index;
+    const nextTurnValue = nextTurnIndex === null ? null : nextTurnIndex + 1;
 
     this.players[player.index].send('fireResult', {
       x,
       y,
       outcome: result,
       ship: sunkShip ? { name: sunkShip.name, coordinates: sunkShip.coordinates } : null,
-      nextTurn: allSunk ? null : opponentIndex + 1,
+      nextTurn: nextTurnValue,
     });
 
     this.players[opponentIndex].send('opponentFire', {
@@ -446,7 +448,7 @@ class Game {
       y,
       outcome: result,
       ship: sunkShip ? { name: sunkShip.name, coordinates: sunkShip.coordinates } : null,
-      nextTurn: allSunk ? null : opponentIndex + 1,
+      nextTurn: nextTurnValue,
     });
 
     if (allSunk) {
@@ -460,8 +462,10 @@ class Game {
       return { ok: true, gameEnded: true };
     }
 
-    this.turn = opponentIndex;
-    this.players[this.turn].send('yourTurn', {});
+    this.turn = nextTurnIndex;
+    if (this.turn !== null && this.turn !== undefined) {
+      this.players[this.turn].send('yourTurn', {});
+    }
     return { ok: true, gameEnded: false };
   }
 
