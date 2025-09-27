@@ -95,6 +95,26 @@ function getMimeType(filePath) {
   }
 }
 
+function sanitizePlayerName(rawName) {
+  if (typeof rawName !== 'string') {
+    return '';
+  }
+  const trimmed = rawName.replace(/\s+/g, ' ').trim();
+  const filtered = trimmed.replace(/[^a-z0-9 \-']/gi, '');
+  return filtered.slice(0, 24);
+}
+
+function normalizeLeaderboardKey(name) {
+  return sanitizePlayerName(name).toLowerCase();
+}
+
+function generateDefaultName() {
+  const suffix = Math.random().toString(16).slice(2, 6);
+  const base = `Commander-${suffix}`;
+  const sanitized = sanitizePlayerName(base);
+  return sanitized || `Commander-${suffix}`;
+}
+
 class WebSocketConnection {
   constructor(socket) {
     this.socket = socket;
@@ -278,7 +298,7 @@ class Player {
     this.game = null;
     this.ready = false;
     this.ships = [];
-    this.name = `Player-${Math.random().toString(16).slice(2, 6)}`;
+    this.name = generateDefaultName();
     this.roomId = null;
     this.isRoomHost = false;
     this.chatScope = 'lobby';
@@ -472,10 +492,8 @@ class Game {
   }
 
   handleDisconnect(player) {
-    if (!this.active) {
-      return;
-    }
-    const opponent = this.players.find((p) => p !== player);
+    const opponent = this.players.find((p) => p !== player) || null;
+    const shouldAwardWin = this.active && opponent;
     if (opponent) {
       opponent.send('opponentLeft', {});
       opponent.game = null;
@@ -484,6 +502,7 @@ class Game {
     player.game = null;
     player.ready = false;
     this.active = false;
+    return shouldAwardWin ? opponent : null;
   }
 }
 
@@ -497,6 +516,11 @@ class GameManager {
     this.chatMetadata = new Map();
     this.chatHistoryLimit = 80;
     this.ensureChatChannel('lobby', { name: 'Lobby Comms' });
+    this.leaderboards = {
+      pvp: new Map(),
+      solo: new Map(),
+    };
+    this.leaderboardLimit = 10;
   }
 
   addConnection(connection) {
@@ -514,6 +538,8 @@ class GameManager {
     this.setPlayerChatContext(player, 'lobby');
     this.sendLobbySnapshot(player);
     this.sendLobbyMusicSnapshot(player);
+    player.send('profile', { name: player.name });
+    this.sendLeaderboards(player);
   }
 
   ensureChatChannel(channelId, meta = {}) {
@@ -679,6 +705,148 @@ class GameManager {
     });
   }
 
+  handleSetName(player, payload) {
+    if (!player) {
+      return;
+    }
+    const rawName = payload && typeof payload.name === 'string' ? payload.name : '';
+    const sanitized = sanitizePlayerName(rawName);
+    if (!sanitized || sanitized.length < 2) {
+      player.send('profile', {
+        error: 'Name must include at least two characters (letters, numbers, spaces, apostrophes, or hyphens).',
+      });
+      return;
+    }
+    const previousName = player.name;
+    if (sanitized === previousName) {
+      player.send('profile', { name: player.name });
+      return;
+    }
+    const previousKey = normalizeLeaderboardKey(previousName);
+    player.name = sanitized;
+    player.send('profile', { name: player.name });
+    const newKey = normalizeLeaderboardKey(player.name);
+    if (previousKey && previousKey === newKey) {
+      this.syncLeaderboardDisplayName(newKey, player.name);
+    }
+    this.broadcastLeaderboards();
+  }
+
+  handleSoloResult(player, payload) {
+    if (!player) {
+      return;
+    }
+    const result = payload && typeof payload.result === 'string' ? payload.result.toLowerCase() : '';
+    if (result !== 'win' && result !== 'lose') {
+      player.send('leaderboardError', { message: 'Solo result must be "win" or "lose".' });
+      return;
+    }
+    this.updateLeaderboard('solo', player.name, {
+      wins: result === 'win' ? 1 : 0,
+      losses: result === 'lose' ? 1 : 0,
+    });
+    this.broadcastLeaderboards();
+  }
+
+  updateLeaderboard(mode, name, deltas = {}) {
+    const board = this.leaderboards[mode];
+    if (!board) {
+      return;
+    }
+    const sanitized = sanitizePlayerName(name) || 'Commander';
+    const key = normalizeLeaderboardKey(sanitized);
+    if (!key) {
+      return;
+    }
+    let entry = board.get(key);
+    if (!entry) {
+      entry = { name: sanitized, wins: 0, losses: 0, games: 0, lastUpdated: 0 };
+      board.set(key, entry);
+    }
+    const winsDelta = Number.isFinite(deltas.wins) ? deltas.wins : 0;
+    const lossesDelta = Number.isFinite(deltas.losses) ? deltas.losses : 0;
+    entry.name = sanitized;
+    entry.wins = Math.max(0, entry.wins + winsDelta);
+    entry.losses = Math.max(0, entry.losses + lossesDelta);
+    entry.games = entry.wins + entry.losses;
+    entry.lastUpdated = Date.now();
+  }
+
+  recordPvpResult(winner, loser) {
+    if (winner) {
+      this.updateLeaderboard('pvp', winner.name, { wins: 1 });
+    }
+    if (loser) {
+      this.updateLeaderboard('pvp', loser.name, { losses: 1 });
+    }
+    this.broadcastLeaderboards();
+  }
+
+  sendLeaderboards(player) {
+    if (!player) {
+      return;
+    }
+    player.send('leaderboardData', this.buildLeaderboardPayload());
+  }
+
+  broadcastLeaderboards() {
+    const payload = this.buildLeaderboardPayload();
+    this.players.forEach((recipient) => {
+      recipient.send('leaderboardData', payload);
+    });
+  }
+
+  buildLeaderboardPayload() {
+    return {
+      pvp: this.buildLeaderboardArray('pvp'),
+      solo: this.buildLeaderboardArray('solo'),
+    };
+  }
+
+  buildLeaderboardArray(mode) {
+    const board = this.leaderboards[mode];
+    if (!board) {
+      return [];
+    }
+    const entries = Array.from(board.values());
+    entries.sort((a, b) => {
+      if (b.wins !== a.wins) {
+        return b.wins - a.wins;
+      }
+      if (a.losses !== b.losses) {
+        return a.losses - b.losses;
+      }
+      if (b.games !== a.games) {
+        return b.games - a.games;
+      }
+      if (b.lastUpdated !== a.lastUpdated) {
+        return b.lastUpdated - a.lastUpdated;
+      }
+      return a.name.localeCompare(b.name);
+    });
+    return entries.slice(0, this.leaderboardLimit).map((entry) => ({
+      name: entry.name,
+      wins: entry.wins,
+      losses: entry.losses,
+      games: entry.games,
+      winRate: entry.games > 0 ? entry.wins / entry.games : 0,
+      lastUpdated: entry.lastUpdated,
+    }));
+  }
+
+  syncLeaderboardDisplayName(key, name) {
+    ['pvp', 'solo'].forEach((mode) => {
+      const board = this.leaderboards[mode];
+      if (!board) {
+        return;
+      }
+      const entry = board.get(key);
+      if (entry) {
+        entry.name = name;
+      }
+    });
+  }
+
   handleMessage(player, rawMessage) {
     let payload;
     try {
@@ -723,10 +891,12 @@ class GameManager {
           return;
         }
         const game = player.game;
+        const opponent = game.players[1 - player.index];
         const result = game.handleFire(player, payload.x, payload.y);
         if (!result.ok) {
           player.send('error', { message: result.message });
         } else if (result.gameEnded) {
+          this.recordPvpResult(player, opponent);
           this.games.delete(game);
         }
         break;
@@ -748,6 +918,15 @@ class GameManager {
         break;
       case 'chatSend':
         this.handleChatSend(player, payload);
+        break;
+      case 'setName':
+        this.handleSetName(player, payload);
+        break;
+      case 'leaderboardRequest':
+        this.sendLeaderboards(player);
+        break;
+      case 'soloResult':
+        this.handleSoloResult(player, payload);
         break;
       default:
         player.send('error', { message: 'Unknown message type.' });
@@ -1054,8 +1233,11 @@ class GameManager {
 
     if (player.game) {
       const game = player.game;
-      game.handleDisconnect(player);
+      const opponent = game.handleDisconnect(player);
       this.games.delete(game);
+      if (opponent) {
+        this.recordPvpResult(opponent, player);
+      }
     }
 
     this.players.delete(player);

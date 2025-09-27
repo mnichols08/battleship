@@ -1477,7 +1477,13 @@ class GameApp extends HTMLElement {
     this.waitingForOpponent = false;
     this.musicLab = this.createMusicLabState();
     this.sudoku = this.createSudokuState();
-  this.chat = this.createChatState();
+    this.profile = this.createProfileState();
+    this.profileMessageTimer = null;
+    this.pendingProfileName = null;
+    this.leaderboards = this.createLeaderboardState();
+    this.pendingSoloResult = null;
+    this.soloResultReported = false;
+    this.chat = this.createChatState();
     this.handleSudokuKeypadClick = this.handleSudokuKeypadClick.bind(this);
     this.handleSudokuBoardClick = this.handleSudokuBoardClick.bind(this);
     this.handleSudokuOverlayKeydown = this.handleSudokuOverlayKeydown.bind(this);
@@ -1689,6 +1695,55 @@ class GameApp extends HTMLElement {
           display: grid;
           justify-items: end;
           gap: 10px;
+        }
+        .profile-controls {
+          display: grid;
+          gap: 6px;
+          justify-items: end;
+        }
+        .profile-bar {
+          display: flex;
+          align-items: center;
+          justify-content: flex-end;
+          flex-wrap: wrap;
+          gap: 10px;
+        }
+        .name-form {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+        .name-form label {
+          font-size: 13px;
+          color: var(--text-secondary);
+        }
+        .name-form input {
+          width: min(200px, 45vw);
+          padding: 8px 10px;
+          border-radius: 8px;
+          border: 1px solid rgba(78, 220, 255, 0.25);
+          background: rgba(8, 16, 28, 0.85);
+          color: var(--text-primary);
+        }
+        .name-form input:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+        .name-form button {
+          min-width: 70px;
+          padding: 8px 14px;
+        }
+        .name-status {
+          font-size: 12px;
+          min-height: 18px;
+          color: var(--text-secondary);
+        }
+        .name-status.success {
+          color: rgba(79, 255, 171, 0.85);
+        }
+        .name-status.error {
+          color: rgba(255, 103, 133, 0.85);
         }
         .status-line {
           display: flex;
@@ -1993,6 +2048,94 @@ class GameApp extends HTMLElement {
         }
         .mode-options button.secondary {
           background: linear-gradient(135deg, rgba(132, 188, 255, 0.35), rgba(78, 220, 255, 0.12));
+        }
+        .leaderboard-overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(4, 10, 18, 0.88);
+          display: grid;
+          place-items: center;
+          backdrop-filter: blur(20px);
+          z-index: 994;
+        }
+        .leaderboard-overlay[hidden] {
+          display: none;
+        }
+        .leaderboard-panel {
+          width: min(540px, 92vw);
+          background: rgba(12, 22, 38, 0.95);
+          border-radius: 24px;
+          padding: 28px;
+          display: grid;
+          gap: 18px;
+          box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5), inset 0 0 0 1px rgba(78, 220, 255, 0.16);
+        }
+        .leaderboard-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+        }
+        .leaderboard-header h2 {
+          margin: 0;
+          font-size: 22px;
+        }
+        .leaderboard-content {
+          display: grid;
+          gap: 20px;
+        }
+        .leaderboard-section h3 {
+          margin: 0 0 8px;
+          font-size: 16px;
+        }
+        .leaderboard-list {
+          list-style: none;
+          margin: 0;
+          padding: 0;
+          display: grid;
+          gap: 8px;
+        }
+        .leaderboard-item {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          padding: 10px 14px;
+          border-radius: 12px;
+          background: rgba(16, 28, 46, 0.68);
+          border: 1px solid rgba(78, 220, 255, 0.14);
+          font-size: 13px;
+        }
+        .leaderboard-item .identity {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          font-weight: 600;
+        }
+        .leaderboard-item .rank {
+          width: 24px;
+          text-align: right;
+          color: rgba(78, 220, 255, 0.85);
+          font-family: 'JetBrains Mono', monospace;
+        }
+        .leaderboard-item .name {
+          color: rgba(233, 242, 255, 0.92);
+        }
+        .leaderboard-item .metrics {
+          display: flex;
+          gap: 12px;
+          font-family: 'JetBrains Mono', monospace;
+          font-size: 12px;
+          color: rgba(200, 219, 255, 0.78);
+        }
+        .leaderboard-empty {
+          text-align: center;
+          font-size: 13px;
+          color: var(--text-secondary);
+          padding: 12px;
+          border-radius: 12px;
+          background: rgba(16, 28, 46, 0.6);
+          border: 1px solid rgba(78, 220, 255, 0.12);
         }
         .lobby-overlay {
           position: fixed;
@@ -2330,6 +2473,17 @@ class GameApp extends HTMLElement {
         <header>
           <h1>Battleship Arena</h1>
           <div class="header-tools">
+            <div class="profile-controls">
+              <div class="profile-bar">
+                <form id="playerNameForm" class="name-form">
+                  <label for="playerNameInput">Commander</label>
+                  <input id="playerNameInput" type="text" maxlength="24" placeholder="Enter call sign" autocomplete="nickname" />
+                  <button type="submit">Save</button>
+                </form>
+                <button id="leaderboardBtn" type="button">Leaderboards</button>
+              </div>
+              <span class="name-status" id="playerNameStatus" aria-live="polite"></span>
+            </div>
             <div class="status-line" id="statusLine"></div>
             <div class="header-buttons">
               <button id="sudokuBtn" type="button">Sudoku</button>
@@ -2401,6 +2555,24 @@ class GameApp extends HTMLElement {
           </div>
         </div>
       </div>
+      <div class="leaderboard-overlay" id="leaderboardOverlay" hidden>
+        <div class="leaderboard-panel" role="dialog" aria-modal="true" aria-labelledby="leaderboardTitle">
+          <div class="leaderboard-header">
+            <h2 id="leaderboardTitle">Commander Leaderboards</h2>
+            <button id="closeLeaderboardBtn" type="button" aria-label="Close leaderboards">×</button>
+          </div>
+          <div class="leaderboard-content">
+            <section class="leaderboard-section">
+              <h3>PvP Commanders</h3>
+              <ol class="leaderboard-list" id="pvpLeaderboardList"></ol>
+            </section>
+            <section class="leaderboard-section">
+              <h3>Solo vs AI</h3>
+              <ol class="leaderboard-list" id="soloLeaderboardList"></ol>
+            </section>
+          </div>
+        </div>
+      </div>
       <div class="lobby-overlay" id="lobbyOverlay" hidden>
         <div class="lobby-panel">
           <h2>Battle Lobby</h2>
@@ -2461,6 +2633,62 @@ class GameApp extends HTMLElement {
       rooms: new Map(),
       collapsed: false,
       connection: 'offline',
+    };
+  }
+
+  sanitizePlayerName(value) {
+    if (typeof value !== 'string') {
+      return '';
+    }
+    const trimmed = value.replace(/\s+/g, ' ').trim();
+    const filtered = trimmed.replace(/[^a-z0-9 '\-]/gi, '');
+    return filtered.slice(0, 24);
+  }
+
+  createProfileState() {
+    const stored = this.getStoredCommanderName();
+    const sanitized = this.sanitizePlayerName(stored);
+    return {
+      name: sanitized,
+      draft: sanitized,
+      pending: null,
+      status: 'idle',
+      message: '',
+      messageVariant: 'info',
+    };
+  }
+
+  getStoredCommanderName() {
+    try {
+      return window.localStorage.getItem('battleshipCommanderName') || '';
+    } catch (error) {
+      console.warn('Unable to read commander name from storage.', error);
+      return '';
+    }
+  }
+
+  persistCommanderName(name) {
+    try {
+      if (name) {
+        window.localStorage.setItem('battleshipCommanderName', name);
+      } else {
+        window.localStorage.removeItem('battleshipCommanderName');
+      }
+    } catch (error) {
+      console.warn('Unable to persist commander name.', error);
+    }
+  }
+
+  createLeaderboardState() {
+    return {
+      pvp: [],
+      solo: [],
+      loading: false,
+      fetched: false,
+      open: false,
+      needsRefresh: false,
+      error: '',
+      lastUpdated: 0,
     };
   }
 
@@ -2841,6 +3069,7 @@ class GameApp extends HTMLElement {
   }
 
   applyChatContext(payload) {
+    this.setChatConnectionState('online');
     const scope = payload && payload.scope === 'room' ? 'room' : 'lobby';
     if (scope === 'room') {
       const roomId = typeof payload.roomId === 'string' && payload.roomId ? payload.roomId : this.chat.roomId;
@@ -2857,6 +3086,7 @@ class GameApp extends HTMLElement {
   }
 
   applyChatHistory(payload) {
+    this.setChatConnectionState('online');
     if (!payload || !Array.isArray(payload.messages)) {
       return;
     }
@@ -2880,6 +3110,7 @@ class GameApp extends HTMLElement {
   }
 
   applyChatMessage(payload) {
+    this.setChatConnectionState('online');
     if (!payload || !payload.message) {
       return;
     }
@@ -2898,6 +3129,371 @@ class GameApp extends HTMLElement {
     if (this.chat.scope === 'lobby') {
       this.appendChatMessageToUI(payload.message);
     }
+  }
+
+  setupProfileControls() {
+    if (this.playerNameForm && !this.playerNameForm.dataset.bound) {
+      this.playerNameForm.addEventListener('submit', (event) => {
+        event.preventDefault();
+        this.submitCommanderName();
+      });
+      this.playerNameForm.dataset.bound = 'true';
+    }
+
+    if (this.playerNameInput && !this.playerNameInput.dataset.bound) {
+      this.playerNameInput.addEventListener('input', () => {
+        this.profile.draft = this.playerNameInput.value;
+      });
+      this.playerNameInput.dataset.bound = 'true';
+    }
+
+    if (this.leaderboardBtn) {
+      this.leaderboardBtn.setAttribute('aria-haspopup', 'dialog');
+      this.leaderboardBtn.setAttribute('aria-pressed', this.leaderboards.open ? 'true' : 'false');
+    }
+
+    this.updateProfileUI();
+  }
+
+  updateProfileUI() {
+    if (this.playerNameInput) {
+      const currentValue = this.profile.draft || '';
+      if (this.playerNameInput.value !== currentValue) {
+        this.playerNameInput.value = currentValue;
+      }
+      this.playerNameInput.disabled = this.profile.status === 'saving';
+    }
+
+    if (this.playerNameForm) {
+      const submitBtn = this.playerNameForm.querySelector('button[type="submit"]');
+      if (submitBtn) {
+        submitBtn.disabled = this.profile.status === 'saving';
+        submitBtn.textContent = this.profile.status === 'saving' ? 'Saving…' : 'Save';
+      }
+    }
+
+    if (this.playerNameStatus) {
+      this.playerNameStatus.textContent = this.profile.message || '';
+      this.playerNameStatus.classList.toggle('success', this.profile.messageVariant === 'success');
+      this.playerNameStatus.classList.toggle('error', this.profile.messageVariant === 'error');
+    }
+  }
+
+  setProfileStatus(message, variant = 'info', options = {}) {
+    if (this.profileMessageTimer) {
+      clearTimeout(this.profileMessageTimer);
+      this.profileMessageTimer = null;
+    }
+    this.profile.message = message || '';
+    this.profile.messageVariant = variant;
+    this.updateProfileUI();
+
+    const autoClear = options.autoClear !== undefined ? options.autoClear : variant !== 'error';
+    if (autoClear && message) {
+      this.profileMessageTimer = setTimeout(() => {
+        this.profile.message = '';
+        this.profile.messageVariant = 'info';
+        this.profileMessageTimer = null;
+        this.updateProfileUI();
+      }, 3200);
+    }
+  }
+
+  submitCommanderName() {
+    if (!this.playerNameInput) {
+      return;
+    }
+    const sanitized = this.sanitizePlayerName(this.playerNameInput.value);
+    if (!sanitized || sanitized.length < 2) {
+      this.profile.draft = this.profile.name;
+      this.setProfileStatus('Enter a name with at least two characters.', 'error', { autoClear: false });
+      this.updateProfileUI();
+      return;
+    }
+
+    if (sanitized === this.profile.name && !this.profile.pending) {
+      this.setProfileStatus('Name already saved.', 'info');
+      return;
+    }
+
+    this.profile.draft = sanitized;
+    this.profile.pending = sanitized;
+    this.profile.status = 'saving';
+    this.pendingProfileName = sanitized;
+    this.setProfileStatus('Saving…', 'info', { autoClear: false });
+    this.updateProfileUI();
+    this.flushPendingProfileName();
+  }
+
+  flushPendingProfileName() {
+    if (!this.pendingProfileName) {
+      return;
+    }
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    const pending = this.pendingProfileName;
+    this.pendingProfileName = null;
+    this.send({ type: 'setName', name: pending });
+  }
+
+  handleProfileUpdate(payload) {
+    if (!payload) {
+      return;
+    }
+    if (payload.error) {
+      this.pendingProfileName = null;
+      this.profile.pending = null;
+      this.profile.status = 'error';
+      this.profile.draft = this.profile.name;
+      this.setProfileStatus(payload.error, 'error', { autoClear: false });
+      this.updateProfileUI();
+      return;
+    }
+    if (typeof payload.name === 'string') {
+      const sanitized = this.sanitizePlayerName(payload.name);
+      this.profile.name = sanitized;
+      this.profile.draft = sanitized;
+      this.profile.pending = null;
+      this.profile.status = 'ready';
+      this.persistCommanderName(sanitized);
+      this.setProfileStatus('Call sign updated.', 'success');
+      this.updateProfileUI();
+      this.updateStatus();
+    }
+  }
+
+  syncCommanderProfile() {
+    if (this.profile.pending) {
+      return;
+    }
+    const name = this.profile && this.profile.name ? this.sanitizePlayerName(this.profile.name) : '';
+    if (!name || name.length < 2) {
+      return;
+    }
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    this.send({ type: 'setName', name });
+  }
+
+  setupLeaderboardInterface() {
+    if (this.leaderboardBtn && !this.leaderboardBtn.dataset.bound) {
+      this.leaderboardBtn.addEventListener('click', () => {
+        if (this.leaderboards.open) {
+          this.closeLeaderboardOverlay();
+        } else {
+          this.openLeaderboardOverlay();
+        }
+      });
+      this.leaderboardBtn.dataset.bound = 'true';
+    }
+
+    if (this.closeLeaderboardBtn && !this.closeLeaderboardBtn.dataset.bound) {
+      this.closeLeaderboardBtn.addEventListener('click', () => {
+        this.closeLeaderboardOverlay();
+      });
+      this.closeLeaderboardBtn.dataset.bound = 'true';
+    }
+
+    if (this.leaderboardOverlay && !this.leaderboardOverlay.dataset.bound) {
+      this.leaderboardOverlay.addEventListener('click', (event) => {
+        if (event.target === this.leaderboardOverlay) {
+          this.closeLeaderboardOverlay();
+        }
+      });
+      this.leaderboardOverlay.dataset.bound = 'true';
+    }
+
+    this.renderLeaderboard();
+  }
+
+  openLeaderboardOverlay() {
+    if (!this.leaderboardOverlay) {
+      return;
+    }
+    this.leaderboardOverlay.hidden = false;
+    this.leaderboards.open = true;
+    if (this.leaderboardBtn) {
+      this.leaderboardBtn.setAttribute('aria-pressed', 'true');
+    }
+    if (this.closeLeaderboardBtn) {
+      this.closeLeaderboardBtn.focus();
+    }
+    if ((!this.leaderboards.fetched && !this.leaderboards.loading) || this.leaderboards.needsRefresh) {
+      this.requestLeaderboards();
+    }
+    this.renderLeaderboard();
+  }
+
+  closeLeaderboardOverlay(options = {}) {
+    if (!this.leaderboardOverlay || this.leaderboardOverlay.hidden) {
+      return;
+    }
+    this.leaderboardOverlay.hidden = true;
+    this.leaderboards.open = false;
+    if (this.leaderboardBtn) {
+      this.leaderboardBtn.setAttribute('aria-pressed', 'false');
+      if (!options.silent) {
+        this.leaderboardBtn.focus();
+      }
+    }
+  }
+
+  renderLeaderboard() {
+    this.renderLeaderboardSection(this.pvpLeaderboardList, this.leaderboards.pvp, 'pvp');
+    this.renderLeaderboardSection(this.soloLeaderboardList, this.leaderboards.solo, 'solo');
+  }
+
+  renderLeaderboardSection(list, entries, mode) {
+    if (!list) {
+      return;
+    }
+    list.innerHTML = '';
+
+    if (this.leaderboards.error) {
+      const li = document.createElement('li');
+      li.className = 'leaderboard-empty';
+      li.textContent = this.leaderboards.error;
+      list.appendChild(li);
+      return;
+    }
+
+    if (this.leaderboards.loading && (!Array.isArray(entries) || entries.length === 0)) {
+      const li = document.createElement('li');
+      li.className = 'leaderboard-empty';
+      li.textContent = 'Syncing results…';
+      list.appendChild(li);
+      return;
+    }
+
+    if (!Array.isArray(entries) || entries.length === 0) {
+      const li = document.createElement('li');
+      li.className = 'leaderboard-empty';
+      li.textContent = mode === 'pvp'
+        ? 'No PvP battles recorded yet.'
+        : 'No solo battles recorded yet.';
+      list.appendChild(li);
+      return;
+    }
+
+    entries.forEach((entry, index) => {
+      const item = document.createElement('li');
+      item.className = 'leaderboard-item';
+
+      const identity = document.createElement('div');
+      identity.className = 'identity';
+      const rank = document.createElement('span');
+      rank.className = 'rank';
+      rank.textContent = `${index + 1}.`;
+      const name = document.createElement('span');
+      name.className = 'name';
+      name.textContent = entry.name || 'Commander';
+      identity.appendChild(rank);
+      identity.appendChild(name);
+
+      const metrics = document.createElement('div');
+      metrics.className = 'metrics';
+      const wins = document.createElement('span');
+      wins.textContent = `${Number.isFinite(entry.wins) ? entry.wins : 0}W`;
+      const losses = document.createElement('span');
+      losses.textContent = `${Number.isFinite(entry.losses) ? entry.losses : 0}L`;
+      const rate = document.createElement('span');
+      const games = Number.isFinite(entry.games) ? entry.games : (Number.isFinite(entry.wins) ? entry.wins : 0) + (Number.isFinite(entry.losses) ? entry.losses : 0);
+      const winRate = games > 0 ? Math.round(((Number.isFinite(entry.wins) ? entry.wins : 0) / games) * 100) : 0;
+      rate.textContent = `${winRate}%`;
+      rate.title = `Win rate across ${games} game${games === 1 ? '' : 's'}`;
+      metrics.appendChild(wins);
+      metrics.appendChild(losses);
+      metrics.appendChild(rate);
+
+      item.appendChild(identity);
+      item.appendChild(metrics);
+      list.appendChild(item);
+    });
+  }
+
+  requestLeaderboards(options = {}) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    const silent = !!options.silent;
+    this.leaderboards.error = '';
+    if (!silent) {
+      this.leaderboards.loading = true;
+      this.renderLeaderboard();
+    }
+    this.leaderboards.needsRefresh = false;
+    this.send({ type: 'leaderboardRequest' });
+  }
+
+  applyLeaderboardData(payload) {
+    if (!payload) {
+      return;
+    }
+    const normalize = (entries) => {
+      if (!Array.isArray(entries)) {
+        return [];
+      }
+      return entries.slice(0, 20).map((entry) => {
+        const wins = Number.isFinite(entry.wins) && entry.wins >= 0 ? entry.wins : 0;
+        const losses = Number.isFinite(entry.losses) && entry.losses >= 0 ? entry.losses : 0;
+        const games = Number.isFinite(entry.games) && entry.games >= 0 ? entry.games : wins + losses;
+        return {
+          name: this.sanitizePlayerName(entry.name) || 'Commander',
+          wins,
+          losses,
+          games,
+        };
+      });
+    };
+
+    this.leaderboards.pvp = normalize(payload.pvp);
+    this.leaderboards.solo = normalize(payload.solo);
+    this.leaderboards.loading = false;
+    this.leaderboards.fetched = true;
+    this.leaderboards.error = '';
+    this.leaderboards.needsRefresh = false;
+    this.leaderboards.lastUpdated = Date.now();
+    this.renderLeaderboard();
+  }
+
+  handleLeaderboardError(payload) {
+    const message = payload && typeof payload.message === 'string'
+      ? payload.message
+      : 'Unable to load leaderboards.';
+    this.leaderboards.loading = false;
+    this.leaderboards.error = message;
+    this.renderLeaderboard();
+    this.addLog(`Leaderboard: ${message}`, 'error');
+  }
+
+  reportSoloResult(result) {
+    if (this.soloResultReported) {
+      return;
+    }
+    if (result !== 'win' && result !== 'lose') {
+      return;
+    }
+    this.soloResultReported = true;
+    this.pendingSoloResult = result;
+    this.leaderboards.needsRefresh = true;
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      this.addLog('Solo result will sync when connection is restored.', 'info');
+    }
+    this.flushPendingSoloResult();
+  }
+
+  flushPendingSoloResult() {
+    if (!this.pendingSoloResult) {
+      return;
+    }
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    const outcome = this.pendingSoloResult;
+    this.pendingSoloResult = null;
+    this.send({ type: 'soloResult', result: outcome });
   }
 
   openMusicOverlay() {
@@ -3738,6 +4334,10 @@ class GameApp extends HTMLElement {
     this.hintLine = this.shadowRoot.querySelector('#hintLine');
     this.logPanel = this.shadowRoot.querySelector('#logPanel');
     this.playAgainBtn = this.shadowRoot.querySelector('#playAgainBtn');
+  this.playerNameForm = this.shadowRoot.querySelector('#playerNameForm');
+  this.playerNameInput = this.shadowRoot.querySelector('#playerNameInput');
+  this.playerNameStatus = this.shadowRoot.querySelector('#playerNameStatus');
+  this.leaderboardBtn = this.shadowRoot.querySelector('#leaderboardBtn');
 
     this.ownGrid = this.shadowRoot.querySelector('#ownGrid');
     this.targetGrid = this.shadowRoot.querySelector('#targetGrid');
@@ -3775,15 +4375,19 @@ class GameApp extends HTMLElement {
     this.musicClearBtn = this.shadowRoot.querySelector('#musicClearBtn');
     this.musicInfo = this.shadowRoot.querySelector('#musicInfo');
     this.closeMusicOverlayBtn = this.shadowRoot.querySelector('#closeMusicOverlayBtn');
-  this.chatPanel = this.shadowRoot.querySelector('#chatPanel');
-  this.chatTitle = this.shadowRoot.querySelector('#chatTitle');
-  this.chatSubtitle = this.shadowRoot.querySelector('#chatSubtitle');
-  this.chatMessages = this.shadowRoot.querySelector('#chatMessages');
-  this.chatForm = this.shadowRoot.querySelector('#chatForm');
-  this.chatInput = this.shadowRoot.querySelector('#chatInput');
-  this.chatSendBtn = this.shadowRoot.querySelector('#chatSendBtn');
-  this.chatToggleBtn = this.shadowRoot.querySelector('#chatToggleBtn');
-  this.chatStatusDot = this.shadowRoot.querySelector('#chatStatusDot');
+    this.leaderboardOverlay = this.shadowRoot.querySelector('#leaderboardOverlay');
+    this.closeLeaderboardBtn = this.shadowRoot.querySelector('#closeLeaderboardBtn');
+    this.pvpLeaderboardList = this.shadowRoot.querySelector('#pvpLeaderboardList');
+    this.soloLeaderboardList = this.shadowRoot.querySelector('#soloLeaderboardList');
+    this.chatPanel = this.shadowRoot.querySelector('#chatPanel');
+    this.chatTitle = this.shadowRoot.querySelector('#chatTitle');
+    this.chatSubtitle = this.shadowRoot.querySelector('#chatSubtitle');
+    this.chatMessages = this.shadowRoot.querySelector('#chatMessages');
+    this.chatForm = this.shadowRoot.querySelector('#chatForm');
+    this.chatInput = this.shadowRoot.querySelector('#chatInput');
+    this.chatSendBtn = this.shadowRoot.querySelector('#chatSendBtn');
+    this.chatToggleBtn = this.shadowRoot.querySelector('#chatToggleBtn');
+    this.chatStatusDot = this.shadowRoot.querySelector('#chatStatusDot');
 
     this.targetGrid.setInteractive(false);
     this.ownGrid.setInteractive(true);
@@ -3930,6 +4534,8 @@ class GameApp extends HTMLElement {
     this.updateLobbyInfo();
     this.refreshLobbyControls();
 
+    this.setupProfileControls();
+    this.setupLeaderboardInterface();
     this.setupSudokuInterface();
     this.setupMusicLabInterface();
     this.setupChatInterface();
@@ -4174,6 +4780,9 @@ class GameApp extends HTMLElement {
     }
     this.lastSharedMusic = null;
     this.resetChatState();
+    this.closeLeaderboardOverlay({ silent: true });
+    this.pendingSoloResult = null;
+    this.soloResultReported = false;
     if (this.ws) {
       try {
         this.ws.close();
@@ -4254,6 +4863,7 @@ class GameApp extends HTMLElement {
     if (this.audio) {
       this.audio.playSfx('mode');
     }
+    this.connect();
   }
 
   commitSoloPlacement() {
@@ -4430,6 +5040,7 @@ class GameApp extends HTMLElement {
     this.addLog(`${this.localGame.names[this.localGame.turn]} has the initiative.`, 'info');
     this.turnInfo.textContent = `${this.localGame.names[this.localGame.turn]} is lining up the first volley.`;
     this.startSpectatorMatch();
+    this.connect();
   }
 
   startSpectatorMatch() {
@@ -4535,6 +5146,7 @@ class GameApp extends HTMLElement {
   connect() {
     const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
     const wsUrl = `${protocol}://${window.location.host}`;
+    this.setChatConnectionState('connecting');
     this.ws = new WebSocket(wsUrl);
     this.addLog('Connecting to command server...', 'info');
 
@@ -4545,10 +5157,21 @@ class GameApp extends HTMLElement {
         this.turnInfo.textContent = 'Connected. Use the lobby to find an opponent.';
         this.enterLobby();
         this.requestLobbyRooms();
+      } else if (this.mode === 'solo') {
+        this.state = 'placement';
+        this.addLog('Connected to command server. Solo results will sync automatically.', 'info');
+      } else if (this.mode === 'spectate') {
+        this.addLog('Command server connection established. Observing AI duel.', 'info');
       } else {
         this.state = 'placement';
-        this.addLog('Connected. Waiting for assignment...', 'info');
+        this.addLog('Connected to command server.', 'info');
       }
+      this.flushPendingProfileName();
+      if (!this.profile.pending) {
+        this.syncCommanderProfile();
+      }
+      this.flushPendingSoloResult();
+      this.requestLeaderboards({ silent: true });
       this.updateStatus();
     });
 
@@ -4580,6 +5203,15 @@ class GameApp extends HTMLElement {
         this.updateLobbyInfo('Disconnected from lobby. Refresh to reconnect.');
       }
       this.refreshLobbyControls();
+      this.closeLeaderboardOverlay({ silent: true });
+      if (this.profile && this.profile.pending && !this.pendingProfileName) {
+        this.pendingProfileName = this.profile.pending;
+        this.profile.status = 'idle';
+        this.updateProfileUI();
+      }
+      this.setChatConnectionState('offline');
+      this.leaderboards.loading = false;
+      this.renderLeaderboard();
       this.updateStatus();
     });
 
@@ -4590,6 +5222,30 @@ class GameApp extends HTMLElement {
 
   handleServerEvent(payload) {
     switch (payload.type) {
+      case 'profile':
+        this.handleProfileUpdate(payload);
+        break;
+      case 'leaderboardData':
+      case 'leaderboardUpdate':
+        this.applyLeaderboardData(payload);
+        break;
+      case 'leaderboardError':
+        this.handleLeaderboardError(payload);
+        break;
+      case 'chatContext':
+        this.applyChatContext(payload);
+        break;
+      case 'chatHistory':
+        this.applyChatHistory(payload);
+        break;
+      case 'chatMessage':
+        this.applyChatMessage(payload);
+        break;
+      case 'chatError':
+        if (payload.message) {
+          this.addLog(`Chat: ${payload.message}`, 'error');
+        }
+        break;
       case 'lobbyUpdate': {
         this.lobbyRooms = Array.isArray(payload.rooms) ? payload.rooms : [];
         this.renderLobbyRooms();
@@ -4873,6 +5529,9 @@ class GameApp extends HTMLElement {
   handleGameOver(result, reasonMessage) {
     this.clearLocalTimers();
     this.gameEnded = true;
+    if (this.mode === 'solo') {
+      this.reportSoloResult(result);
+    }
     this.targetGrid.setInteractive(false);
     this.isMyTurn = false;
     this.playAgainBtn.hidden = false;
@@ -5115,6 +5774,11 @@ class GameApp extends HTMLElement {
 
   updateStatus() {
     const status = [];
+    if (this.profile) {
+      const trimmedName = this.profile.name && this.profile.name.trim() ? this.profile.name.trim() : '';
+      const label = trimmedName ? `Commander ${trimmedName}` : 'Commander unassigned';
+      status.push(this.buildBadge(label, trimmedName ? 'success' : 'info'));
+    }
     if (!this.mode) {
       status.push(this.buildBadge('Choose a mode to begin', 'info'));
     } else if (this.mode === 'pvp') {
