@@ -1653,6 +1653,7 @@ class GameApp extends HTMLElement {
       const nextShip = SHIPS[this.currentShipIndex];
       this.hintLine.textContent = `Place your ${nextShip.name} (${nextShip.length} cells).`;
     }
+    this.updateControls();
   }
 
   calculateCoordinates(startX, startY, length, orientation) {
@@ -1691,6 +1692,7 @@ class GameApp extends HTMLElement {
     if (this.audio) {
       this.audio.playSfx('place');
     }
+    this.updateControls();
   }
 
   resetPlacement() {
