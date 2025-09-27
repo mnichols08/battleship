@@ -279,6 +279,8 @@ class Player {
     this.ready = false;
     this.ships = [];
     this.name = `Player-${Math.random().toString(16).slice(2, 6)}`;
+    this.roomId = null;
+    this.isRoomHost = false;
   }
 
   send(type, payload = {}) {
@@ -481,12 +483,15 @@ class Game {
 
 class GameManager {
   constructor() {
-    this.waitingPlayer = null;
+    this.players = new Set();
+    this.rooms = new Map();
     this.games = new Set();
   }
 
   addConnection(connection) {
     const player = new Player(connection);
+    this.players.add(player);
+
     connection.onMessage((msg) => {
       this.handleMessage(player, msg);
     });
@@ -494,20 +499,8 @@ class GameManager {
       this.handleDisconnect(player);
     });
 
-    if (!this.waitingPlayer) {
-      this.waitingPlayer = player;
-      player.send('playerAssignment', { player: 1 });
-      player.send('waitingForOpponent', {});
-    } else {
-      const opponent = this.waitingPlayer;
-      this.waitingPlayer = null;
-      const game = new Game(opponent, player);
-      this.games.add(game);
-      opponent.send('opponentJoined', {});
-      player.send('playerAssignment', { player: 2 });
-      opponent.send('playerAssignment', { player: 1 });
-      player.send('opponentJoined', {});
-    }
+    player.send('playerAssignment', { player: null });
+    this.sendLobbySnapshot(player);
   }
 
   handleMessage(player, rawMessage) {
@@ -521,6 +514,18 @@ class GameManager {
 
     const { type } = payload;
     switch (type) {
+      case 'createRoom':
+        this.createRoom(player, payload.name);
+        break;
+      case 'joinRoom':
+        this.joinRoom(player, payload.roomId);
+        break;
+      case 'leaveRoom':
+        this.leaveRoom(player);
+        break;
+      case 'listRooms':
+        this.sendLobbySnapshot(player);
+        break;
       case 'placeShips': {
         if (!player.game) {
           player.send('error', { message: 'No active game.' });
@@ -567,17 +572,187 @@ class GameManager {
     }
   }
 
-  handleDisconnect(player) {
-    if (this.waitingPlayer === player) {
-      this.waitingPlayer = null;
+  createRoom(player, rawName) {
+    if (player.game) {
+      player.send('error', { message: 'Cannot create a room while a match is active.' });
       return;
     }
+
+    if (player.roomId) {
+      this.leaveRoom(player, { silent: true });
+    }
+
+    const name = typeof rawName === 'string' ? rawName.trim().slice(0, 48) : '';
+    const roomName = name || `${player.name}'s Room`;
+    const roomId = `room-${Date.now().toString(16)}-${Math.random().toString(16).slice(2, 6)}`;
+    const room = {
+      id: roomId,
+      name: roomName,
+      players: [],
+      createdAt: Date.now(),
+    };
+
+    this.rooms.set(roomId, room);
+    this.joinRoom(player, roomId, { createdRoom: true });
+  }
+
+  joinRoom(player, roomId, options = {}) {
+    if (player.game) {
+      player.send('error', { message: 'Cannot join a room while a match is active.' });
+      return;
+    }
+
+    if (!roomId || typeof roomId !== 'string') {
+      player.send('error', { message: 'Invalid room identifier.' });
+      return;
+    }
+
+    const room = this.rooms.get(roomId);
+    if (!room) {
+      player.send('error', { message: 'Room no longer exists.' });
+      this.sendLobbySnapshot(player);
+      return;
+    }
+
+    if (room.players.includes(player)) {
+      player.send('roomJoined', {
+        roomId: room.id,
+        name: room.name,
+        occupants: room.players.length,
+        isHost: player.isRoomHost,
+      });
+      return;
+    }
+
+    if (room.players.length >= 2) {
+      player.send('error', { message: 'Room is full.' });
+      this.sendLobbySnapshot(player);
+      return;
+    }
+
+    if (player.roomId && player.roomId !== roomId) {
+      this.leaveRoom(player, { silent: true });
+    }
+
+    room.players.push(player);
+    player.roomId = room.id;
+    player.isRoomHost = room.players.length === 1;
+
+    player.send('roomJoined', {
+      roomId: room.id,
+      name: room.name,
+      occupants: room.players.length,
+      isHost: player.isRoomHost,
+      created: !!options.createdRoom,
+    });
+
+    if (room.players.length === 1) {
+      player.send('waitingForOpponent', {});
+    }
+
+    this.sendLobbyUpdate();
+
+    if (room.players.length === 2) {
+      this.startGame(room);
+    }
+  }
+
+  leaveRoom(player, options = {}) {
+    const roomId = player.roomId;
+    if (!roomId) {
+      return;
+    }
+
+    const room = this.rooms.get(roomId);
+    player.roomId = null;
+    player.isRoomHost = false;
+
+    if (!room) {
+      if (!options.silent) {
+        player.send('roomLeft', { roomId });
+      }
+      this.sendLobbyUpdate();
+      return;
+    }
+
+    room.players = room.players.filter((p) => p !== player);
+
+    if (!options.silent) {
+      player.send('roomLeft', { roomId });
+    }
+
+    if (room.players.length === 0) {
+      this.rooms.delete(roomId);
+    } else {
+      const remainingPlayers = [...room.players];
+      this.rooms.delete(roomId);
+      remainingPlayers.forEach((p) => {
+        p.roomId = null;
+        p.isRoomHost = false;
+        p.send('roomClosed', { roomId });
+      });
+    }
+
+    this.sendLobbyUpdate();
+  }
+
+  startGame(room) {
+    this.rooms.delete(room.id);
+    const [playerA, playerB] = room.players;
+
+    playerA.roomId = null;
+    playerB.roomId = null;
+    playerA.isRoomHost = false;
+    playerB.isRoomHost = false;
+
+    const game = new Game(playerA, playerB);
+    this.games.add(game);
+
+    playerA.send('playerAssignment', { player: 1 });
+    playerB.send('playerAssignment', { player: 2 });
+    playerA.send('opponentJoined', {});
+    playerB.send('opponentJoined', {});
+
+    this.sendLobbyUpdate();
+  }
+
+  sendLobbySnapshot(player) {
+    player.send('lobbyUpdate', { rooms: this.buildLobbyRooms() });
+  }
+
+  sendLobbyUpdate() {
+    const rooms = this.buildLobbyRooms();
+    this.players.forEach((player) => {
+      if (!player.game) {
+        player.send('lobbyUpdate', { rooms });
+      }
+    });
+  }
+
+  buildLobbyRooms() {
+    const rooms = Array.from(this.rooms.values()).map((room) => ({
+      id: room.id,
+      name: room.name,
+      occupants: room.players.length,
+      capacity: 2,
+      createdAt: room.createdAt,
+    }));
+
+    rooms.sort((a, b) => a.createdAt - b.createdAt);
+    return rooms;
+  }
+
+  handleDisconnect(player) {
+    this.leaveRoom(player, { silent: true });
 
     if (player.game) {
       const game = player.game;
       game.handleDisconnect(player);
       this.games.delete(game);
     }
+
+    this.players.delete(player);
+    this.sendLobbyUpdate();
   }
 }
 

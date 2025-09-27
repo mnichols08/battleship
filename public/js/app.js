@@ -613,6 +613,9 @@ class GameApp extends HTMLElement {
     this.localGame = null;
     this.localTimers = new Set();
     this.audio = new AudioEngine();
+    this.lobbyRooms = [];
+    this.currentRoom = null;
+    this.waitingForOpponent = false;
     this.render();
   }
 
@@ -670,6 +673,16 @@ class GameApp extends HTMLElement {
         }
         .audio-controls button {
           min-width: 120px;
+        }
+        .header-buttons {
+          display: flex;
+          gap: 10px;
+          flex-wrap: wrap;
+          justify-content: flex-end;
+          align-items: center;
+        }
+        .header-buttons button {
+          min-width: 110px;
         }
         .boards {
           display: grid;
@@ -803,15 +816,114 @@ class GameApp extends HTMLElement {
         .mode-options button.secondary {
           background: linear-gradient(135deg, rgba(132, 188, 255, 0.35), rgba(78, 220, 255, 0.12));
         }
+        .lobby-overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(6, 12, 22, 0.88);
+          display: grid;
+          place-items: center;
+          z-index: 990;
+          backdrop-filter: blur(18px);
+        }
+        .lobby-overlay[hidden] {
+          display: none;
+        }
+        .lobby-panel {
+          width: min(520px, 92vw);
+          background: rgba(12, 22, 38, 0.92);
+          border-radius: 24px;
+          padding: 28px;
+          display: grid;
+          gap: 16px;
+          box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5), inset 0 0 0 1px rgba(78, 220, 255, 0.16);
+        }
+        .lobby-panel h2 {
+          margin: 0;
+          font-size: 22px;
+        }
+        .lobby-create {
+          display: flex;
+          gap: 10px;
+          flex-wrap: wrap;
+        }
+        .lobby-create input {
+          flex: 1;
+          min-width: 180px;
+          padding: 10px 12px;
+          border-radius: 10px;
+          border: 1px solid rgba(78, 220, 255, 0.25);
+          background: rgba(8, 16, 28, 0.8);
+          color: var(--text-primary);
+        }
+        .lobby-create button {
+          min-width: 130px;
+        }
+        .lobby-refresh {
+          justify-self: flex-start;
+        }
+        .lobby-list {
+          display: grid;
+          gap: 12px;
+          max-height: 280px;
+          overflow-y: auto;
+          padding-right: 4px;
+        }
+        .lobby-list::-webkit-scrollbar {
+          width: 6px;
+        }
+        .lobby-list::-webkit-scrollbar-thumb {
+          background: rgba(78, 220, 255, 0.3);
+          border-radius: 8px;
+        }
+        .lobby-room {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 12px 14px;
+          border-radius: 12px;
+          background: rgba(16, 28, 46, 0.65);
+          border: 1px solid rgba(78, 220, 255, 0.12);
+          gap: 16px;
+        }
+        .lobby-room.active {
+          border-color: rgba(78, 220, 255, 0.35);
+          box-shadow: 0 0 12px rgba(78, 220, 255, 0.2);
+        }
+        .lobby-room h3 {
+          margin: 0;
+          font-size: 16px;
+        }
+        .lobby-room small {
+          color: var(--text-secondary);
+          display: block;
+          margin-top: 4px;
+        }
+        .lobby-room button {
+          min-width: 88px;
+        }
+        .lobby-empty {
+          text-align: center;
+          color: var(--text-secondary);
+          font-size: 14px;
+        }
+        .lobby-info {
+          font-size: 14px;
+          color: var(--text-secondary);
+          min-height: 20px;
+        }
       </style>
       <div class="shell">
         <header>
           <h1>Battleship Arena</h1>
           <div class="header-tools">
             <div class="status-line" id="statusLine"></div>
-            <div class="audio-controls">
-              <button id="sfxToggleBtn">SFX: Off</button>
-              <button id="musicToggleBtn">Music: Off</button>
+            <div class="header-buttons">
+              <button id="toggleLobbyBtn" type="button" hidden>Lobby</button>
+              <button id="leaveRoomBtn" type="button" hidden>Leave Room</button>
+              <div class="audio-controls">
+                <button id="sfxToggleBtn">SFX: Off</button>
+                <button id="musicToggleBtn">Music: Off</button>
+              </div>
             </div>
           </div>
         </header>
@@ -856,6 +968,18 @@ class GameApp extends HTMLElement {
           </div>
         </div>
       </div>
+      <div class="lobby-overlay" id="lobbyOverlay" hidden>
+        <div class="lobby-panel">
+          <h2>Battle Lobby</h2>
+          <form class="lobby-create" id="createRoomForm">
+            <input id="roomNameInput" type="text" maxlength="48" placeholder="Room name" />
+            <button type="submit">Create Room</button>
+          </form>
+          <button id="refreshRoomsBtn" type="button" class="lobby-refresh">Refresh Rooms</button>
+          <div class="lobby-list" id="lobbyRooms"></div>
+          <div class="lobby-info" id="lobbyInfo"></div>
+        </div>
+      </div>
     `;
     this.shadowRoot.innerHTML = '';
     this.shadowRoot.appendChild(template.content.cloneNode(true));
@@ -878,8 +1002,16 @@ class GameApp extends HTMLElement {
     this.readyBtn = this.shadowRoot.querySelector('#readyBtn');
     this.modeOverlay = this.shadowRoot.querySelector('#modeOverlay');
     this.modeButtons = this.shadowRoot.querySelectorAll('[data-mode]');
-  this.sfxToggleBtn = this.shadowRoot.querySelector('#sfxToggleBtn');
-  this.musicToggleBtn = this.shadowRoot.querySelector('#musicToggleBtn');
+    this.sfxToggleBtn = this.shadowRoot.querySelector('#sfxToggleBtn');
+    this.musicToggleBtn = this.shadowRoot.querySelector('#musicToggleBtn');
+    this.toggleLobbyBtn = this.shadowRoot.querySelector('#toggleLobbyBtn');
+    this.leaveRoomBtn = this.shadowRoot.querySelector('#leaveRoomBtn');
+    this.lobbyOverlay = this.shadowRoot.querySelector('#lobbyOverlay');
+    this.lobbyRoomsList = this.shadowRoot.querySelector('#lobbyRooms');
+    this.lobbyInfo = this.shadowRoot.querySelector('#lobbyInfo');
+    this.createRoomForm = this.shadowRoot.querySelector('#createRoomForm');
+    this.roomNameInput = this.shadowRoot.querySelector('#roomNameInput');
+    this.refreshRoomsBtn = this.shadowRoot.querySelector('#refreshRoomsBtn');
 
     this.targetGrid.setInteractive(false);
     this.ownGrid.setInteractive(true);
@@ -961,6 +1093,70 @@ class GameApp extends HTMLElement {
         this.toggleMusic();
       });
     }
+
+    if (this.toggleLobbyBtn) {
+      this.toggleLobbyBtn.addEventListener('click', () => {
+        if (!this.lobbyOverlay) {
+          return;
+        }
+        if (this.lobbyOverlay.hidden) {
+          this.showLobbyOverlay();
+          this.requestLobbyRooms();
+        } else {
+          this.hideLobbyOverlay();
+        }
+        this.refreshLobbyControls();
+      });
+    }
+
+    if (this.leaveRoomBtn) {
+      this.leaveRoomBtn.addEventListener('click', () => {
+        this.leaveRoom();
+      });
+    }
+
+    if (this.createRoomForm) {
+      this.createRoomForm.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const name = this.roomNameInput ? this.roomNameInput.value.trim() : '';
+        if (!name) {
+          this.addLog('Enter a room name to deploy a lobby.', 'error');
+          return;
+        }
+        this.send({ type: 'createRoom', name });
+        if (this.roomNameInput) {
+          this.roomNameInput.value = '';
+        }
+      });
+    }
+
+    if (this.refreshRoomsBtn) {
+      this.refreshRoomsBtn.addEventListener('click', () => {
+        this.requestLobbyRooms();
+      });
+    }
+
+    if (this.lobbyRoomsList) {
+      this.lobbyRoomsList.addEventListener('click', (event) => {
+        const target = event.target;
+        if (!(target instanceof Element)) {
+          return;
+        }
+        const button = target.closest('button[data-room-id]');
+        if (!button) {
+          return;
+        }
+        const { roomId } = button.dataset;
+        if (!roomId) {
+          return;
+        }
+        this.send({ type: 'joinRoom', roomId });
+      });
+    }
+
+    this.renderLobbyRooms();
+    this.updateLobbyInfo();
+    this.refreshLobbyControls();
   }
 
   async toggleSfx() {
@@ -1010,6 +1206,147 @@ class GameApp extends HTMLElement {
       this.musicToggleBtn.textContent = `Music: ${this.audio && this.audio.musicEnabled ? 'On' : 'Off'}`;
       this.musicToggleBtn.disabled = !supported;
     }
+  }
+
+  enterLobby() {
+    if (this.mode !== 'pvp') {
+      return;
+    }
+    if (!this.currentRoom) {
+      this.waitingForOpponent = false;
+      this.showLobbyOverlay();
+      this.requestLobbyRooms();
+    }
+    this.updateLobbyInfo();
+    this.refreshLobbyControls();
+  }
+
+  showLobbyOverlay() {
+    if (!this.lobbyOverlay) {
+      return;
+    }
+    this.lobbyOverlay.hidden = false;
+    this.renderLobbyRooms();
+    this.updateLobbyInfo();
+  }
+
+  hideLobbyOverlay() {
+    if (!this.lobbyOverlay) {
+      return;
+    }
+    this.lobbyOverlay.hidden = true;
+    this.refreshLobbyControls();
+  }
+
+  requestLobbyRooms() {
+    if (this.mode !== 'pvp') {
+      return;
+    }
+    this.send({ type: 'listRooms' });
+  }
+
+  renderLobbyRooms() {
+    if (!this.lobbyRoomsList) {
+      return;
+    }
+    this.lobbyRoomsList.innerHTML = '';
+    if (!Array.isArray(this.lobbyRooms) || this.lobbyRooms.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'lobby-empty';
+      empty.textContent = 'No rooms available. Create one to deploy your fleet.';
+      this.lobbyRoomsList.appendChild(empty);
+      return;
+    }
+    this.lobbyRooms.forEach((room) => {
+      const card = document.createElement('div');
+      card.className = 'lobby-room';
+      if (this.currentRoom && this.currentRoom.roomId === room.id) {
+        card.classList.add('active');
+      }
+
+      const info = document.createElement('div');
+      const title = document.createElement('h3');
+      title.textContent = room.name || 'Unnamed Room';
+      const subtitle = document.createElement('small');
+      const occupants = Math.min(room.occupants || 0, room.capacity || 2);
+      subtitle.textContent = `${occupants}/${room.capacity || 2} commanders`;
+      info.appendChild(title);
+      info.appendChild(subtitle);
+
+      const action = document.createElement('button');
+      action.type = 'button';
+      action.dataset.roomId = room.id;
+
+      if (this.currentRoom && this.currentRoom.roomId === room.id) {
+        action.textContent = this.waitingForOpponent ? 'Waiting...' : 'Ready';
+        action.disabled = true;
+      } else if (occupants >= (room.capacity || 2)) {
+        action.textContent = 'Full';
+        action.disabled = true;
+      } else {
+        action.textContent = 'Join';
+      }
+
+      card.appendChild(info);
+      card.appendChild(action);
+      this.lobbyRoomsList.appendChild(card);
+    });
+  }
+
+  updateLobbyInfo(message) {
+    if (!this.lobbyInfo) {
+      return;
+    }
+
+    if (message) {
+      this.lobbyInfo.textContent = message;
+      return;
+    }
+
+    if (this.mode !== 'pvp') {
+      this.lobbyInfo.textContent = '';
+      return;
+    }
+
+    if (this.currentRoom) {
+      if (this.waitingForOpponent) {
+        this.lobbyInfo.textContent = `In room "${this.currentRoom.name}". Waiting for an opponent...`;
+      } else {
+        this.lobbyInfo.textContent = `Room "${this.currentRoom.name}" is ready. Prepare for battle.`;
+      }
+      return;
+    }
+
+    if (!Array.isArray(this.lobbyRooms) || this.lobbyRooms.length === 0) {
+      this.lobbyInfo.textContent = 'No ready rooms yet. Create one to invite an opponent.';
+      return;
+    }
+
+    const count = this.lobbyRooms.length;
+    this.lobbyInfo.textContent = `${count} room${count === 1 ? '' : 's'} standing by.`;
+  }
+
+  refreshLobbyControls() {
+    if (this.toggleLobbyBtn) {
+      const shouldShowToggle = this.mode === 'pvp' && !this.gameEnded;
+      this.toggleLobbyBtn.hidden = !shouldShowToggle;
+      if (shouldShowToggle) {
+        const isOpen = this.lobbyOverlay && !this.lobbyOverlay.hidden;
+        this.toggleLobbyBtn.textContent = isOpen ? 'Close Lobby' : 'Lobby';
+      }
+    }
+
+    if (this.leaveRoomBtn) {
+      const shouldShowLeave = this.mode === 'pvp' && !this.gameEnded && !!this.currentRoom;
+      this.leaveRoomBtn.hidden = !shouldShowLeave;
+    }
+  }
+
+  leaveRoom() {
+    if (this.mode !== 'pvp') {
+      return;
+    }
+    this.send({ type: 'leaveRoom' });
   }
 
   showModeOverlay() {
@@ -1084,14 +1421,26 @@ class GameApp extends HTMLElement {
     this.playAgainBtn.hidden = true;
     this.playAgainBtn.textContent = 'Play Again';
     this.logPanel.innerHTML = '';
+    this.currentRoom = null;
+    this.lobbyRooms = [];
+    this.waitingForOpponent = false;
+    this.hideLobbyOverlay();
+    this.renderLobbyRooms();
+    this.updateLobbyInfo();
     if (this.orientationBtn) {
       this.orientationBtn.textContent = 'Orientation: Horizontal';
     }
     this.updateControls();
+    this.refreshLobbyControls();
   }
 
   preparePvpMode() {
     this.addLog('Online PvP mode selected. Connecting to server...', 'info');
+    this.state = 'lobby';
+    this.currentRoom = null;
+    this.waitingForOpponent = false;
+    this.turnInfo.textContent = 'Connecting to the lobby...';
+    this.enterLobby();
     this.connect();
     if (this.audio) {
       this.audio.playSfx('mode');
@@ -1385,8 +1734,16 @@ class GameApp extends HTMLElement {
     this.addLog('Connecting to command server...', 'info');
 
     this.ws.addEventListener('open', () => {
-      this.state = 'placement';
-      this.addLog('Connected. Waiting for assignment...', 'info');
+      if (this.mode === 'pvp') {
+        this.state = 'lobby';
+        this.addLog('Connected to command lobby. Browse or create a room to begin.', 'info');
+        this.turnInfo.textContent = 'Connected. Use the lobby to find an opponent.';
+        this.enterLobby();
+        this.requestLobbyRooms();
+      } else {
+        this.state = 'placement';
+        this.addLog('Connected. Waiting for assignment...', 'info');
+      }
       this.updateStatus();
     });
 
@@ -1409,6 +1766,15 @@ class GameApp extends HTMLElement {
       this.layoutLocked = true;
       this.ownGrid.setInteractive(false);
       this.targetGrid.setInteractive(false);
+      this.currentRoom = null;
+      this.waitingForOpponent = false;
+      this.lobbyRooms = [];
+      this.renderLobbyRooms();
+      if (this.mode === 'pvp') {
+        this.showLobbyOverlay();
+        this.updateLobbyInfo('Disconnected from lobby. Refresh to reconnect.');
+      }
+      this.refreshLobbyControls();
       this.updateStatus();
     });
 
@@ -1419,14 +1785,91 @@ class GameApp extends HTMLElement {
 
   handleServerEvent(payload) {
     switch (payload.type) {
+      case 'lobbyUpdate': {
+        this.lobbyRooms = Array.isArray(payload.rooms) ? payload.rooms : [];
+        this.renderLobbyRooms();
+        this.updateLobbyInfo();
+        break;
+      }
+      case 'roomJoined': {
+        this.currentRoom = {
+          roomId: payload.roomId,
+          name: payload.name || 'Room',
+          isHost: !!payload.isHost,
+        };
+        const occupants = typeof payload.occupants === 'number' ? payload.occupants : 1;
+        const capacity = payload.capacity || 2;
+        this.waitingForOpponent = occupants < capacity;
+        const logMessage = payload.created
+          ? `Room "${this.currentRoom.name}" deployed. Waiting for an opponent.`
+          : `Joined room "${this.currentRoom.name}"${this.waitingForOpponent ? '. Awaiting opponent...' : '.'}`;
+        this.addLog(logMessage, 'info');
+        if (this.waitingForOpponent) {
+          this.turnInfo.textContent = 'Room ready. Waiting for an opponent to join.';
+        }
+        this.hideLobbyOverlay();
+        this.updateLobbyInfo();
+        this.refreshLobbyControls();
+        this.updateStatus();
+        break;
+      }
+      case 'roomLeft': {
+        if (this.currentRoom && this.currentRoom.roomId === payload.roomId) {
+          this.addLog('You left the room.', 'info');
+        }
+        this.currentRoom = null;
+        this.waitingForOpponent = false;
+        this.showLobbyOverlay();
+        this.requestLobbyRooms();
+        this.refreshLobbyControls();
+        this.updateStatus();
+        this.turnInfo.textContent = 'Left room. Select another to continue.';
+        this.updateLobbyInfo('You left the room. Select or create another to begin.');
+        break;
+      }
+      case 'roomClosed': {
+        if (this.currentRoom && this.currentRoom.roomId === payload.roomId) {
+          this.addLog('Room closed.', 'error');
+        } else {
+          this.addLog('A lobby room was closed.', 'info');
+        }
+        this.currentRoom = null;
+        this.waitingForOpponent = false;
+        this.showLobbyOverlay();
+        this.requestLobbyRooms();
+        this.refreshLobbyControls();
+        this.updateStatus();
+        this.turnInfo.textContent = 'Room closed. Select another or create a new one.';
+        this.updateLobbyInfo('Room closed. Select another or create a new one.');
+        break;
+      }
       case 'playerAssignment':
+        if (payload.player === null || payload.player === undefined) {
+          this.playerNumber = null;
+          this.updateStatus();
+          break;
+        }
         this.playerNumber = payload.player;
+        this.state = 'placement';
+        this.currentRoom = null;
+        this.waitingForOpponent = false;
+  this.lobbyRooms = [];
+  this.renderLobbyRooms();
+        this.hideLobbyOverlay();
+        this.refreshLobbyControls();
+        this.turnInfo.textContent = 'Deploy your fleet and lock it in.';
         this.addLog(`You are Player ${payload.player}.`, 'info');
         this.updateStatus();
         break;
       case 'waitingForOpponent':
         this.addLog('Awaiting an opponent...', 'info');
         this.opponentBadge.textContent = 'Waiting';
+        this.waitingForOpponent = true;
+        if (this.mode === 'pvp') {
+          this.turnInfo.textContent = 'Awaiting an opponent to join your room.';
+        }
+        this.updateLobbyInfo();
+        this.refreshLobbyControls();
         if (this.audio) {
           this.audio.playSfx('mode');
         }
@@ -1436,6 +1879,9 @@ class GameApp extends HTMLElement {
         this.opponentConnected = true;
         this.opponentBadge.textContent = 'Opponent ready to place';
         this.addLog('Opponent joined the arena. Place your fleet!', 'success');
+        this.waitingForOpponent = false;
+        this.hideLobbyOverlay();
+        this.refreshLobbyControls();
         if (this.audio) {
           this.audio.playSfx('opponent');
         }
@@ -1498,6 +1944,10 @@ class GameApp extends HTMLElement {
         this.addLog('Battle commenced!', 'success');
         this.shotsTaken.clear();
         this.targetGrid.reset();
+        this.currentRoom = null;
+        this.waitingForOpponent = false;
+        this.hideLobbyOverlay();
+        this.refreshLobbyControls();
         if (payload.youStart) {
           this.isMyTurn = true;
           this.turnInfo.textContent = 'Your turn. Fire at will!';
@@ -1530,12 +1980,20 @@ class GameApp extends HTMLElement {
         break;
       case 'opponentLeft':
         this.handleGameOver('win', 'Opponent disconnected.');
+        this.currentRoom = null;
+        this.waitingForOpponent = false;
+        this.showLobbyOverlay();
+        this.requestLobbyRooms();
+        this.refreshLobbyControls();
         if (this.audio) {
           this.audio.playSfx('alert');
         }
         break;
       case 'error':
         this.addLog(`Error: ${payload.message}`, 'error');
+        if (this.mode === 'pvp' && !this.playerNumber) {
+          this.updateLobbyInfo(payload.message || 'Lobby error encountered.');
+        }
         if (this.audio) {
           this.audio.playSfx('error');
         }
@@ -1860,6 +2318,17 @@ class GameApp extends HTMLElement {
       if (this.opponentReady) {
         status.push(this.buildBadge('Opponent ready', 'success'));
       }
+      if (this.currentRoom && !this.playerNumber) {
+        status.push(this.buildBadge(`Room: ${this.currentRoom.name}`, 'info'));
+        status.push(
+          this.buildBadge(
+            this.waitingForOpponent ? 'Waiting for opponent' : 'Opponent found',
+            this.waitingForOpponent ? 'info' : 'success',
+          ),
+        );
+      } else if (!this.playerNumber && !this.currentRoom) {
+        status.push(this.buildBadge('In lobby', 'info'));
+      }
       if (this.isMyTurn && !this.gameEnded) {
         status.push(this.buildBadge('Your turn', 'success'));
       } else if (!this.gameEnded && this.layoutLocked && this.opponentReady) {
@@ -1888,6 +2357,10 @@ class GameApp extends HTMLElement {
       this.updateHint();
     }
     this.updateControls();
+    if (this.mode === 'pvp') {
+      this.refreshLobbyControls();
+      this.updateLobbyInfo();
+    }
   }
 
   updateHint() {
