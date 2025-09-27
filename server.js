@@ -303,6 +303,7 @@ class Player {
     this.isRoomHost = false;
     this.chatScope = 'lobby';
     this.chatId = 'lobby';
+    this.chatChannels = new Set(['global', 'lobby']);
   }
 
   send(type, payload = {}) {
@@ -516,6 +517,7 @@ class GameManager {
     this.chatMetadata = new Map();
     this.chatHistoryLimit = 80;
     this.ensureChatChannel('lobby', { name: 'Lobby Comms' });
+  this.ensureChatChannel('global', { name: 'Global Comms' });
     this.leaderboards = {
       pvp: new Map(),
       solo: new Map(),
@@ -575,6 +577,10 @@ class GameManager {
     this.ensureChatChannel(channelId);
     const history = this.chatHistory.get(channelId) || [];
     const messages = history.slice(-this.chatHistoryLimit);
+    if (channelId === 'global') {
+      player.send('chatHistory', { scope: 'global', messages });
+      return;
+    }
     if (channelId === 'lobby') {
       player.send('chatHistory', { scope: 'lobby', messages });
       return;
@@ -592,10 +598,18 @@ class GameManager {
     if (!player) {
       return;
     }
+    const available = new Set(['global']);
+
     if (scope !== 'room') {
       player.chatScope = 'lobby';
       player.chatId = 'lobby';
-      player.send('chatContext', { scope: 'lobby' });
+      available.add('lobby');
+      player.chatChannels = available;
+      player.send('chatContext', {
+        scope: 'lobby',
+        available: Array.from(available),
+      });
+      this.sendChatHistory(player, 'global');
       this.sendChatHistory(player, 'lobby');
       return;
     }
@@ -604,7 +618,13 @@ class GameManager {
     if (!roomId) {
       player.chatScope = 'lobby';
       player.chatId = 'lobby';
-      player.send('chatContext', { scope: 'lobby' });
+      available.add('lobby');
+      player.chatChannels = available;
+      player.send('chatContext', {
+        scope: 'lobby',
+        available: Array.from(available),
+      });
+      this.sendChatHistory(player, 'global');
       this.sendChatHistory(player, 'lobby');
       return;
     }
@@ -612,11 +632,15 @@ class GameManager {
     this.ensureChatChannel(roomId, { name: context.roomName });
     player.chatScope = 'room';
     player.chatId = roomId;
+    available.add('room');
+    player.chatChannels = available;
     player.send('chatContext', {
       scope: 'room',
       roomId,
       roomName: context.roomName || this.chatMetadata.get(roomId)?.name || '',
+      available: Array.from(available),
     });
+    this.sendChatHistory(player, 'global');
     this.sendChatHistory(player, roomId);
   }
 
@@ -652,12 +676,29 @@ class GameManager {
     return { recipients: null, channelId: null, channelName: null };
   }
 
+  isChatScopeAllowed(player, scope) {
+    if (!player) {
+      return false;
+    }
+    if (scope === 'global') {
+      return true;
+    }
+    if (scope === 'lobby') {
+      return !player.roomId && !player.game;
+    }
+    if (scope === 'room') {
+      return Boolean(player.roomId || player.game);
+    }
+    return false;
+  }
+
   handleChatSend(player, payload) {
     if (!player || !payload) {
       return;
     }
 
-    const scope = payload.scope === 'room' ? 'room' : 'lobby';
+    const requestedScope = typeof payload.scope === 'string' ? payload.scope.toLowerCase() : '';
+    const scope = requestedScope === 'room' ? 'room' : requestedScope === 'global' ? 'global' : 'lobby';
     const rawMessage = typeof payload.message === 'string' ? payload.message : '';
     const trimmed = rawMessage.replace(/\s+/g, ' ').trim();
 
@@ -679,11 +720,20 @@ class GameManager {
       timestamp,
     };
 
+    if (!player.chatChannels.has(scope) || !this.isChatScopeAllowed(player, scope)) {
+      player.send('chatError', { message: 'You cannot chat in that channel right now.' });
+      return;
+    }
+
+    if (scope === 'global') {
+      this.appendChatMessage('global', message);
+      this.players.forEach((recipient) => {
+        recipient.send('chatMessage', { scope: 'global', message });
+      });
+      return;
+    }
+
     if (scope === 'lobby') {
-      if (player.roomId || player.game) {
-        player.send('chatError', { message: 'Switch to room chat to reach your opponent.' });
-        return;
-      }
       this.appendChatMessage('lobby', message);
       this.players.forEach((recipient) => {
         if (!recipient.roomId && !recipient.game) {
@@ -898,6 +948,12 @@ class GameManager {
         } else if (result.gameEnded) {
           this.recordPvpResult(player, opponent);
           this.games.delete(game);
+          game.players.forEach((participant) => {
+            if (participant) {
+              this.setPlayerChatContext(participant, 'lobby');
+              this.sendLobbySnapshot(participant);
+            }
+          });
         }
         break;
       }
@@ -1236,6 +1292,7 @@ class GameManager {
       const opponent = game.handleDisconnect(player);
       this.games.delete(game);
       if (opponent) {
+        this.setPlayerChatContext(opponent, 'lobby');
         this.recordPvpResult(opponent, player);
       }
     }
