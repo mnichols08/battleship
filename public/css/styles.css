@@ -17,9 +17,25 @@ body {
   background: radial-gradient(circle at top, rgba(16, 36, 66, 0.85), rgba(7, 16, 30, 0.95) 45%, #04090f 100%);
   color: var(--text-primary);
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 24px;
+  padding: clamp(16px, 3vw, 24px);
+  box-sizing: border-box;
+}
+
+@media (max-width: 720px) {
+  body {
+    align-items: flex-start;
+    justify-content: flex-start;
+    padding: 16px;
+  }
+}
+
+@media (max-width: 480px) {
+  body {
+    padding: 10px;
+  }
 }
 
 h1,

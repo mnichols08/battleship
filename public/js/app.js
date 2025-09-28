@@ -893,6 +893,126 @@ class BattleGrid extends HTMLElement {
           color: rgba(255, 255, 255, 0.45);
           margin-top: 12px;
         }
+
+        @media (max-width: 900px) {
+          .shell {
+            padding: 22px;
+            gap: 18px;
+          }
+          header {
+            flex-direction: column;
+            align-items: stretch;
+            gap: 14px;
+          }
+          .header-tools {
+            justify-items: stretch;
+          }
+          .header-buttons {
+            justify-content: stretch;
+          }
+          .audio-controls {
+            justify-content: stretch;
+          }
+          .boards {
+            grid-template-columns: 1fr;
+            gap: 18px;
+          }
+          .board-panel {
+            padding: 16px;
+          }
+          .log {
+            max-height: 260px;
+          }
+        }
+
+        @media (max-width: 600px) {
+          header h1 {
+            font-size: 22px;
+          }
+          .status-line {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 6px;
+          }
+          .audio-controls,
+          .header-buttons,
+          .controls {
+            width: 100%;
+            flex-direction: column;
+            align-items: stretch;
+            justify-content: stretch;
+            flex-wrap: nowrap;
+            gap: 8px;
+          }
+          .header-buttons button,
+          .audio-controls button,
+          .controls button {
+            flex: 1 1 auto;
+            min-width: 0;
+          }
+          .shell {
+            padding: 18px;
+          }
+          .board-panel {
+            gap: 12px;
+          }
+          .grid-shell {
+            padding: 14px;
+          }
+          .grid {
+            grid-template-columns: repeat(10, minmax(24px, 1fr));
+            grid-template-rows: repeat(10, minmax(24px, 1fr));
+          }
+          .labels {
+            font-size: 11px;
+          }
+          .legend {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 4px;
+          }
+          .log {
+            max-height: 200px;
+          }
+          .chat-panel {
+            left: 14px;
+            right: 14px;
+            width: auto;
+            bottom: 14px;
+            max-height: calc(100vh - 140px);
+          }
+          .chat-panel.collapsed {
+            right: 16px;
+            left: auto;
+            width: min(320px, calc(100vw - 32px));
+          }
+          .chat-title-group h3 {
+            font-size: 14px;
+          }
+          .chat-subtitle {
+            font-size: 11px;
+          }
+        }
+
+        @media (max-width: 420px) {
+          .shell {
+            padding: 16px;
+            border-radius: 20px;
+          }
+          header h1 {
+            font-size: 20px;
+          }
+          .board-panel h2 {
+            font-size: 17px;
+          }
+          .chat-panel {
+            bottom: 10px;
+            left: 10px;
+            right: 10px;
+            padding: 16px;
+            border-radius: 18px;
+          }
+        }
       </style>
         <div class="grid-shell">
         <div class="labels top">
@@ -1510,7 +1630,9 @@ class GameApp extends HTMLElement {
       <style>
         :host {
           display: block;
-          width: min(1040px, 100vw);
+          width: 100%;
+          max-width: 1040px;
+          margin: 0 auto;
         }
         .shell {
           display: grid;
