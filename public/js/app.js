@@ -1474,8 +1474,9 @@ class GameApp extends HTMLElement {
     this.audio = new AudioEngine();
     this.lobbyRooms = [];
     this.currentRoom = null;
-    this.waitingForOpponent = false;
-    this.musicLab = this.createMusicLabState();
+  this.waitingForOpponent = false;
+  this.battleMomentum = this.createBattleMomentumState();
+  this.lastChatterAt = 0;
     this.sudoku = this.createSudokuState();
     this.profile = this.createProfileState();
     this.profileMessageTimer = null;
@@ -1487,175 +1488,9 @@ class GameApp extends HTMLElement {
     this.handleSudokuKeypadClick = this.handleSudokuKeypadClick.bind(this);
     this.handleSudokuBoardClick = this.handleSudokuBoardClick.bind(this);
     this.handleSudokuOverlayKeydown = this.handleSudokuOverlayKeydown.bind(this);
-    this.musicShareTimer = null;
-    this.musicShareEcho = new Map();
-    this.lastSharedMusic = null;
     this.render();
   }
 
-  applyMusicLabPatternToBackground(options = {}) {
-    if (!this.audio || !this.audio.supported) {
-      return;
-    }
-    const lab = this.musicLab;
-    const pattern = options.pattern || (lab ? lab.pattern : null);
-    if (!pattern || !Array.isArray(pattern)) {
-      this.audio.setBackgroundPattern(null);
-      return;
-    }
-    const steps = options.steps || (lab ? lab.steps : undefined);
-    const notes = options.notes || (lab ? lab.notes : undefined);
-    const tempo = options.tempo || (lab ? lab.tempo : undefined);
-    this.audio.setBackgroundPattern({ pattern, steps, notes, tempo });
-  }
-
-  scheduleMusicLabBroadcast(reason = 'update') {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      return;
-    }
-    if (this.mode !== 'pvp' || this.state !== 'lobby') {
-      return;
-    }
-    if (this.musicShareTimer) {
-      clearTimeout(this.musicShareTimer);
-    }
-    this.musicShareTimer = setTimeout(() => {
-      this.musicShareTimer = null;
-      this.broadcastMusicLabPattern(reason);
-    }, 320);
-  }
-
-  broadcastMusicLabPattern(reason = 'update') {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.musicLab) {
-      return;
-    }
-    const { pattern, steps, notes, tempo } = this.musicLab;
-    if (!Array.isArray(pattern)) {
-      return;
-    }
-    const shareId = this.generateMusicShareId();
-    this.musicShareEcho.set(shareId, Date.now());
-    this.pruneMusicShareEcho();
-    this.send({
-      type: 'musicLabShare',
-      pattern: pattern.map((row) => row.map((value) => !!value)),
-      steps,
-      notes: Array.isArray(notes) ? notes.map((note) => ({
-        label: note.label,
-        semitone: note.semitone,
-      })) : [],
-      tempo,
-      reason,
-      shareId,
-      activeCount: pattern.reduce((sum, row) => sum + row.filter(Boolean).length, 0),
-    });
-  }
-
-  generateMusicShareId() {
-    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-  }
-
-  pruneMusicShareEcho() {
-    const now = Date.now();
-    this.musicShareEcho.forEach((timestamp, key) => {
-      if (now - timestamp > 15000) {
-        this.musicShareEcho.delete(key);
-      }
-    });
-  }
-
-  handleIncomingMusicPattern(data, options = {}) {
-    if (!data) {
-      this.applyMusicLabPatternToBackground({ pattern: null });
-      return;
-    }
-
-    if (data.shareId && this.musicShareEcho.has(data.shareId)) {
-      this.musicShareEcho.delete(data.shareId);
-      this.applyMusicLabPatternToBackground({
-        pattern: this.convertPatternForLab(data.pattern),
-        steps: this.musicLab ? this.musicLab.steps : data.steps,
-        notes: data.notes,
-        tempo: data.tempo,
-      });
-      return;
-    }
-
-    const hasPattern = Array.isArray(data.pattern) && data.pattern.length > 0;
-    if (!hasPattern) {
-      this.applyMusicLabPatternToBackground({ pattern: null });
-      const lab = this.musicLab;
-      if (lab) {
-        lab.pattern = this.convertPatternForLab([]);
-        this.refreshMusicPadStates();
-        if (lab.open) {
-          this.updateMusicLabInfo('Lobby groove cleared. Compose a new sequence.');
-        }
-      }
-      if (this.musicLabBtn) {
-        this.musicLabBtn.classList.remove('attention');
-      }
-      if (!options.silent) {
-        this.addLog('Lobby groove cleared.', 'info');
-      }
-      this.lastSharedMusic = null;
-      return;
-    }
-
-    const sanitizedPattern = this.convertPatternForLab(data.pattern);
-    this.applyMusicLabPatternToBackground({
-      pattern: sanitizedPattern,
-      steps: this.musicLab ? this.musicLab.steps : data.steps,
-      notes: data.notes,
-      tempo: data.tempo,
-    });
-
-    const lab = this.musicLab;
-    if (lab) {
-      lab.pattern = sanitizedPattern;
-      if (Number.isFinite(data.tempo)) {
-        lab.tempo = Math.max(120, Math.min(1000, data.tempo));
-      }
-      this.refreshMusicPadStates();
-      if (lab.open) {
-        this.updateMusicLabInfo(`Lobby groove synced from ${data.author || 'ally commander'}.`);
-      } else if (this.musicInfo && (this.musicInfo.textContent || '').length === 0) {
-        this.updateMusicLabInfo(`Lobby groove set by ${data.author || 'ally commander'}. Press Play to hear it.`);
-      }
-    }
-
-    if (this.musicLabBtn) {
-      this.musicLabBtn.classList.add('attention');
-    }
-
-    if (!options.silent) {
-      this.addLog(`Lobby music updated by ${data.author || 'another commander'}.`, 'info');
-    }
-    this.lastSharedMusic = data;
-  }
-
-  convertPatternForLab(pattern) {
-    const lab = this.musicLab;
-    const rowCount = lab ? lab.notes.length : Array.isArray(pattern) ? pattern.length : 0;
-    const steps = lab ? lab.steps : 8;
-    if (!Array.isArray(pattern) || rowCount === 0) {
-      return Array.from({ length: rowCount }, () => Array(steps).fill(false));
-    }
-    return Array.from({ length: rowCount }, (_, rowIdx) => {
-      const row = Array.isArray(pattern[rowIdx]) ? pattern[rowIdx] : [];
-      return Array.from({ length: steps }, (__, stepIdx) => !!row[stepIdx]);
-    });
-  }
-
-  handleMusicLabPatternChanged({ reason = 'update', broadcast = true } = {}) {
-    this.applyMusicLabPatternToBackground();
-    if (broadcast) {
-      this.scheduleMusicLabBroadcast(reason);
-    }
-    if (this.musicLabBtn) {
-      this.musicLabBtn.classList.remove('attention');
-    }
-  }
 
   connectedCallback() {
     this.bindElements();
@@ -2312,109 +2147,6 @@ class GameApp extends HTMLElement {
           color: var(--text-secondary);
           min-height: 20px;
         }
-        .music-overlay {
-          position: fixed;
-          inset: 0;
-          display: grid;
-          place-items: center;
-          background: rgba(4, 10, 18, 0.88);
-          backdrop-filter: blur(24px);
-          z-index: 995;
-        }
-        .music-overlay[hidden] {
-          display: none;
-        }
-        .music-panel {
-          width: min(620px, 94vw);
-          background: rgba(14, 26, 44, 0.94);
-          border-radius: 28px;
-          padding: 26px;
-          display: grid;
-          gap: 18px;
-          box-shadow: 0 28px 70px rgba(0, 0, 0, 0.55), inset 0 0 0 1px rgba(78, 220, 255, 0.16);
-        }
-        .music-panel-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 10px;
-        }
-        .music-panel-header h2 {
-          margin: 0;
-          font-size: 24px;
-        }
-        #closeMusicOverlayBtn {
-          font-size: 20px;
-          line-height: 1;
-          padding: 8px 12px;
-          background: rgba(20, 32, 52, 0.9);
-          border: 1px solid rgba(78, 220, 255, 0.24);
-          border-radius: 12px;
-          width: 42px;
-          height: 42px;
-        }
-        .music-description {
-          margin: 0;
-          color: var(--text-secondary);
-          font-size: 14px;
-        }
-        .music-grid {
-          display: grid;
-          gap: 10px;
-        }
-        .music-row {
-          display: grid;
-          grid-template-columns: 60px repeat(8, minmax(42px, 1fr));
-          gap: 8px;
-          align-items: center;
-        }
-        .music-note-label {
-          justify-self: end;
-          font-size: 14px;
-          color: rgba(255, 255, 255, 0.62);
-          font-weight: 600;
-          letter-spacing: 0.5px;
-        }
-        .music-pad {
-          position: relative;
-          border-radius: 14px;
-          border: 1px solid rgba(78, 220, 255, 0.14);
-          background: rgba(25, 38, 60, 0.7);
-          height: 44px;
-          cursor: pointer;
-          transition: transform 120ms ease, border 150ms ease, box-shadow 150ms ease, background 150ms ease;
-          display: grid;
-          place-items: center;
-          color: rgba(255, 255, 255, 0.65);
-          font-size: 13px;
-        }
-        .music-pad:hover {
-          border-color: rgba(78, 220, 255, 0.45);
-          transform: translateY(-1px);
-        }
-        .music-pad.active {
-          background: linear-gradient(135deg, rgba(78, 220, 255, 0.5), rgba(132, 188, 255, 0.25));
-          box-shadow: 0 8px 24px rgba(78, 220, 255, 0.18);
-          border-color: rgba(78, 220, 255, 0.6);
-          color: rgba(255, 255, 255, 0.85);
-        }
-        .music-pad.playing-step {
-          box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.18), 0 0 25px rgba(78, 220, 255, 0.35);
-        }
-        .music-controls {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 10px;
-        }
-        .music-controls button {
-          flex: 1;
-          min-width: 120px;
-        }
-        .music-info {
-          font-size: 13px;
-          min-height: 20px;
-          color: var(--text-secondary);
-        }
         .sudoku-overlay {
           position: fixed;
           inset: 0;
@@ -2567,7 +2299,6 @@ class GameApp extends HTMLElement {
             <div class="status-line" id="statusLine"></div>
             <div class="header-buttons">
               <button id="sudokuBtn" type="button">Sudoku</button>
-              <button id="musicLabBtn" type="button">Music Lab</button>
               <button id="toggleLobbyBtn" type="button" hidden>Lobby</button>
               <button id="leaveRoomBtn" type="button" hidden>Leave Room</button>
               <div class="audio-controls">
@@ -2683,23 +2414,6 @@ class GameApp extends HTMLElement {
           <div class="sudoku-info" id="sudokuInfo" aria-live="polite"></div>
         </div>
       </div>
-      <div class="music-overlay" id="musicOverlay" hidden>
-        <div class="music-panel">
-          <div class="music-panel-header">
-            <h2>Music Lab</h2>
-            <button id="closeMusicOverlayBtn" type="button" aria-label="Close music lab">×</button>
-          </div>
-          <p class="music-description">Toggle pads to lay down a groove and hit play to hear your custom sequence.</p>
-          <div class="music-grid" id="musicGrid"></div>
-          <div class="music-controls">
-            <button id="musicPlayBtn" type="button">Play</button>
-            <button id="musicStopBtn" type="button" disabled>Stop</button>
-            <button id="musicRandomBtn" type="button">Randomize</button>
-            <button id="musicClearBtn" type="button">Clear</button>
-          </div>
-          <div class="music-info" id="musicInfo"></div>
-        </div>
-      </div>
     `;
     this.shadowRoot.innerHTML = '';
     this.shadowRoot.appendChild(template.content.cloneNode(true));
@@ -2717,6 +2431,15 @@ class GameApp extends HTMLElement {
       available: ['global'],
       collapsed: false,
       connection: 'offline',
+    };
+  }
+
+  createBattleMomentumState() {
+    return {
+      playerHitStreak: 0,
+      bestPlayerStreak: 0,
+      enemyHitStreak: 0,
+      bestEnemyStreak: 0,
     };
   }
 
@@ -2774,133 +2497,6 @@ class GameApp extends HTMLElement {
       error: '',
       lastUpdated: 0,
     };
-  }
-
-  createMusicLabState() {
-    const notes = this.buildMusicLabNotes();
-    const steps = 8;
-    return {
-      open: false,
-      playing: false,
-      notes,
-      steps,
-      pattern: Array.from({ length: notes.length }, () => Array(steps).fill(false)),
-      currentStep: 0,
-      timer: null,
-      pads: new Map(),
-      stepGroups: Array.from({ length: steps }, () => []),
-      tempo: 420,
-      pendingSharedPattern: null,
-    };
-  }
-
-  buildMusicLabNotes() {
-    return [
-      { label: 'C4', semitone: 0 },
-      { label: 'D4', semitone: 2 },
-      { label: 'E4', semitone: 4 },
-      { label: 'G4', semitone: 7 },
-      { label: 'A4', semitone: 9 },
-      { label: 'C5', semitone: 12 },
-    ];
-  }
-
-  setupMusicLabInterface() {
-    const lab = this.musicLab;
-    if (!this.musicGrid || !lab) {
-      return;
-    }
-
-    if (!Array.isArray(lab.pattern) || lab.pattern.length !== lab.notes.length) {
-      lab.pattern = Array.from({ length: lab.notes.length }, () => Array(lab.steps).fill(false));
-    }
-
-    lab.pads = new Map();
-    lab.stepGroups = Array.from({ length: lab.steps }, () => []);
-
-    this.musicGrid.innerHTML = '';
-    lab.notes.forEach((note, rowIdx) => {
-      const row = document.createElement('div');
-      row.className = 'music-row';
-
-      const label = document.createElement('span');
-      label.className = 'music-note-label';
-      label.textContent = note.label;
-      row.appendChild(label);
-
-      for (let step = 0; step < lab.steps; step += 1) {
-        const pad = document.createElement('button');
-        pad.type = 'button';
-        pad.className = 'music-pad';
-        pad.dataset.row = String(rowIdx);
-        pad.dataset.step = String(step);
-        if (lab.pattern[rowIdx][step]) {
-          pad.classList.add('active');
-        }
-        pad.addEventListener('click', () => {
-          this.toggleMusicPad(rowIdx, step);
-        });
-        row.appendChild(pad);
-        const key = `${rowIdx}:${step}`;
-        lab.pads.set(key, pad);
-        lab.stepGroups[step].push(pad);
-      }
-
-      this.musicGrid.appendChild(row);
-    });
-
-    if (this.musicLabBtn) {
-      this.musicLabBtn.addEventListener('click', () => {
-        if (lab.open) {
-          this.closeMusicOverlay();
-        } else {
-          this.openMusicOverlay();
-        }
-        this.musicLabBtn.classList.remove('attention');
-      });
-    }
-
-    if (this.closeMusicOverlayBtn) {
-      this.closeMusicOverlayBtn.addEventListener('click', () => {
-        this.closeMusicOverlay();
-      });
-    }
-
-    if (this.musicOverlay) {
-      this.musicOverlay.addEventListener('click', (event) => {
-        if (event.target === this.musicOverlay) {
-          this.closeMusicOverlay();
-        }
-      });
-    }
-
-    if (this.musicPlayBtn) {
-      this.musicPlayBtn.addEventListener('click', () => {
-        this.playMusicLab();
-      });
-    }
-
-    if (this.musicStopBtn) {
-      this.musicStopBtn.addEventListener('click', () => {
-        this.stopMusicLab();
-      });
-    }
-
-    if (this.musicRandomBtn) {
-      this.musicRandomBtn.addEventListener('click', () => {
-        this.randomizeMusicPattern();
-      });
-    }
-
-    if (this.musicClearBtn) {
-      this.musicClearBtn.addEventListener('click', () => {
-        this.clearMusicPattern();
-      });
-    }
-
-    this.setMusicLabPlayingState(false);
-    this.updateMusicLabInfo('Tap pads to arm them and press Play.');
-    this.applyMusicLabPatternToBackground();
   }
 
   setupChatInterface() {
@@ -3836,251 +3432,6 @@ class GameApp extends HTMLElement {
     this.send({ type: 'soloResult', result: outcome });
   }
 
-  openMusicOverlay() {
-    if (!this.musicOverlay) {
-      return;
-    }
-    this.musicOverlay.hidden = false;
-    this.musicLab.open = true;
-    if (this.musicLabBtn) {
-      this.musicLabBtn.setAttribute('aria-pressed', 'true');
-    }
-    this.updateMusicLabInfo('Tap pads to arm them and press Play.');
-  }
-
-  closeMusicOverlay(options = {}) {
-    if (!this.musicOverlay) {
-      return;
-    }
-    const { silent = false } = options;
-    this.stopMusicLab({ silent: true });
-    this.musicOverlay.hidden = true;
-    this.musicLab.open = false;
-    if (this.musicLabBtn) {
-      this.musicLabBtn.setAttribute('aria-pressed', 'false');
-    }
-    if (!silent) {
-      this.updateMusicLabInfo('Tap pads to arm them and press Play.');
-    }
-  }
-
-  toggleMusicPad(rowIdx, stepIdx) {
-    const lab = this.musicLab;
-    if (!lab || !lab.pattern[rowIdx]) {
-      return;
-    }
-    const current = lab.pattern[rowIdx][stepIdx];
-    const next = !current;
-    lab.pattern[rowIdx][stepIdx] = next;
-    const pad = lab.pads.get(`${rowIdx}:${stepIdx}`);
-    if (pad) {
-      pad.classList.toggle('active', next);
-    }
-    if (lab.playing) {
-      this.updateMusicLabInfo('Pattern updated. Ride the groove.');
-    } else if (next) {
-      this.updateMusicLabInfo('Pad armed. Press Play to hear it.');
-    } else if (!this.hasMusicPatternData()) {
-      this.updateMusicLabInfo('All pads cleared. Add some notes or randomize.');
-    } else {
-      this.updateMusicLabInfo('Pad cleared. Keep sculpting your beat.');
-    }
-    this.handleMusicLabPatternChanged({ reason: 'padToggle' });
-  }
-
-  async playMusicLab() {
-    const lab = this.musicLab;
-    if (!lab || lab.playing) {
-      return;
-    }
-
-    if (!this.audio || !this.audio.supported) {
-      this.updateMusicLabInfo('Audio not supported in this browser.');
-      return;
-    }
-
-    if (!this.hasMusicPatternData()) {
-      this.updateMusicLabInfo('Activate some pads or tap Randomize to generate a loop.');
-      return;
-    }
-
-    this.audio.ensureContext();
-    if (!this.audio.sfxEnabled) {
-      await this.audio.enableSfx();
-      this.refreshAudioControls();
-      this.addLog('Music Lab engaged sound effects channel.', 'info');
-    }
-
-    lab.playing = true;
-    lab.currentStep = 0;
-    this.setMusicLabPlayingState(true);
-    this.updateMusicLabInfo('Sequence running. Tap Stop to pause.');
-
-    this.advanceMusicLabStep();
-    const tempo = Math.max(120, Math.min(1000, lab.tempo || 420));
-    lab.timer = setInterval(() => {
-      this.advanceMusicLabStep();
-    }, tempo);
-    this.scheduleMusicLabBroadcast('play');
-  }
-
-  stopMusicLab(options = {}) {
-    const lab = this.musicLab;
-    if (!lab) {
-      return;
-    }
-    const { silent = false } = options;
-    if (lab.timer) {
-      clearInterval(lab.timer);
-      lab.timer = null;
-    }
-    const wasPlaying = lab.playing;
-    lab.playing = false;
-    lab.currentStep = 0;
-    this.clearMusicLabHighlights();
-    this.setMusicLabPlayingState(false);
-    if (wasPlaying && !silent) {
-      this.updateMusicLabInfo('Sequence paused. Adjust pads or resume.');
-    }
-  }
-
-  advanceMusicLabStep() {
-    const lab = this.musicLab;
-    if (!lab || !lab.playing) {
-      return;
-    }
-    const previousStep = (lab.currentStep - 1 + lab.steps) % lab.steps;
-    const previousPads = lab.stepGroups[previousStep] || [];
-    previousPads.forEach((pad) => pad.classList.remove('playing-step'));
-
-    const currentPads = lab.stepGroups[lab.currentStep] || [];
-    currentPads.forEach((pad) => pad.classList.add('playing-step'));
-
-    this.triggerMusicLabStep(lab.currentStep);
-
-    lab.currentStep = (lab.currentStep + 1) % lab.steps;
-  }
-
-  triggerMusicLabStep(stepIdx) {
-    const lab = this.musicLab;
-    if (!lab || !this.audio || !this.audio.context) {
-      return;
-    }
-    const baseFreq = 261.63; // C4
-    const accent = stepIdx === 0;
-
-    lab.notes.forEach((note, rowIdx) => {
-      if (!lab.pattern[rowIdx][stepIdx]) {
-        return;
-      }
-      const frequency = baseFreq * 2 ** (note.semitone / 12);
-      const wobble = accent ? 1.05 : 1.015;
-      this.audio.spawnTone({
-        frequencyStart: frequency,
-        frequencyEnd: frequency * wobble,
-        duration: accent ? 0.4 : 0.32,
-        gainPeak: accent ? 0.55 : 0.42,
-        type: rowIdx % 2 === 0 ? 'triangle' : 'sine',
-        destination: this.audio.musicGain || this.audio.sfxGain,
-      });
-      if (accent && rowIdx === 0) {
-        this.audio.spawnTone({
-          frequencyStart: frequency / 2,
-          frequencyEnd: (frequency / 2) * 1.01,
-          duration: 0.5,
-          gainPeak: 0.32,
-          type: 'sawtooth',
-          destination: this.audio.musicGain || this.audio.sfxGain,
-          delay: 0.02,
-        });
-      }
-    });
-  }
-
-  randomizeMusicPattern() {
-    const lab = this.musicLab;
-    if (!lab) {
-      return;
-    }
-    lab.pattern = Array.from({ length: lab.notes.length }, (_row, rowIdx) => (
-      Array.from({ length: lab.steps }, () => Math.random() < (0.3 + rowIdx * 0.04))
-    ));
-    this.refreshMusicPadStates();
-    this.updateMusicLabInfo('Fresh pattern loaded. Press Play to listen.');
-    this.handleMusicLabPatternChanged({ reason: 'randomize' });
-  }
-
-  clearMusicPattern() {
-    const lab = this.musicLab;
-    if (!lab) {
-      return;
-    }
-    lab.pattern = Array.from({ length: lab.notes.length }, () => Array(lab.steps).fill(false));
-    this.refreshMusicPadStates();
-    this.updateMusicLabInfo('Pads cleared. Paint a new rhythm.');
-    this.handleMusicLabPatternChanged({ reason: 'clear' });
-  }
-
-  refreshMusicPadStates() {
-    const lab = this.musicLab;
-    if (!lab) {
-      return;
-    }
-    lab.notes.forEach((_, rowIdx) => {
-      for (let step = 0; step < lab.steps; step += 1) {
-        const pad = lab.pads.get(`${rowIdx}:${step}`);
-        if (pad) {
-          pad.classList.toggle('active', !!lab.pattern[rowIdx][step]);
-        }
-      }
-    });
-  }
-
-  setMusicLabPlayingState(isPlaying) {
-    if (this.musicPlayBtn) {
-      this.musicPlayBtn.disabled = isPlaying;
-    }
-    if (this.musicStopBtn) {
-      this.musicStopBtn.disabled = !isPlaying;
-    }
-    if (this.musicRandomBtn) {
-      this.musicRandomBtn.disabled = isPlaying;
-    }
-    if (this.musicClearBtn) {
-      this.musicClearBtn.disabled = isPlaying;
-    }
-  }
-
-  clearMusicLabHighlights() {
-    const lab = this.musicLab;
-    if (!lab) {
-      return;
-    }
-    lab.stepGroups.forEach((pads) => {
-      pads.forEach((pad) => pad.classList.remove('playing-step'));
-    });
-  }
-
-  hasMusicPatternData() {
-    const lab = this.musicLab;
-    if (!lab) {
-      return false;
-    }
-    return lab.pattern.some((row) => row.some((value) => value));
-  }
-
-  updateMusicLabInfo(message) {
-    if (this.musicInfo) {
-      this.musicInfo.textContent = message || '';
-    }
-  }
-
-  shutdownMusicLab() {
-    this.stopMusicLab({ silent: true });
-    this.closeMusicOverlay({ silent: true });
-    this.updateMusicLabInfo('Tap pads to arm them and press Play.');
-  }
-
   shutdownSudoku() {
     if (!this.sudoku) {
       return;
@@ -4705,16 +4056,7 @@ class GameApp extends HTMLElement {
     this.sudokuHintBtn = this.shadowRoot.querySelector('#sudokuHintBtn');
     this.sudokuCheckBtn = this.shadowRoot.querySelector('#sudokuCheckBtn');
     this.sudokuNewBtn = this.shadowRoot.querySelector('#sudokuNewBtn');
-    this.sudokuInfo = this.shadowRoot.querySelector('#sudokuInfo');
-    this.musicLabBtn = this.shadowRoot.querySelector('#musicLabBtn');
-    this.musicOverlay = this.shadowRoot.querySelector('#musicOverlay');
-    this.musicGrid = this.shadowRoot.querySelector('#musicGrid');
-    this.musicPlayBtn = this.shadowRoot.querySelector('#musicPlayBtn');
-    this.musicStopBtn = this.shadowRoot.querySelector('#musicStopBtn');
-    this.musicRandomBtn = this.shadowRoot.querySelector('#musicRandomBtn');
-    this.musicClearBtn = this.shadowRoot.querySelector('#musicClearBtn');
-    this.musicInfo = this.shadowRoot.querySelector('#musicInfo');
-    this.closeMusicOverlayBtn = this.shadowRoot.querySelector('#closeMusicOverlayBtn');
+  this.sudokuInfo = this.shadowRoot.querySelector('#sudokuInfo');
     this.leaderboardOverlay = this.shadowRoot.querySelector('#leaderboardOverlay');
     this.closeLeaderboardBtn = this.shadowRoot.querySelector('#closeLeaderboardBtn');
     this.pvpLeaderboardList = this.shadowRoot.querySelector('#pvpLeaderboardList');
@@ -4727,7 +4069,7 @@ class GameApp extends HTMLElement {
     this.chatInput = this.shadowRoot.querySelector('#chatInput');
     this.chatSendBtn = this.shadowRoot.querySelector('#chatSendBtn');
     this.chatToggleBtn = this.shadowRoot.querySelector('#chatToggleBtn');
-  this.chatChannels = this.shadowRoot.querySelector('#chatChannelTabs');
+    this.chatChannels = this.shadowRoot.querySelector('#chatChannelTabs');
     this.chatStatusDot = this.shadowRoot.querySelector('#chatStatusDot');
 
     this.targetGrid.setInteractive(false);
@@ -4883,11 +4225,10 @@ class GameApp extends HTMLElement {
     this.updateLobbyInfo();
     this.refreshLobbyControls();
 
-    this.setupProfileControls();
-    this.setupLeaderboardInterface();
-    this.setupSudokuInterface();
-    this.setupMusicLabInterface();
-    this.setupChatInterface();
+  this.setupProfileControls();
+  this.setupLeaderboardInterface();
+  this.setupSudokuInterface();
+  this.setupChatInterface();
   }
 
   async toggleSfx() {
@@ -5118,16 +4459,7 @@ class GameApp extends HTMLElement {
 
   resetBaseState() {
     this.clearLocalTimers();
-    this.shutdownMusicLab();
     this.shutdownSudoku();
-    if (this.musicShareTimer) {
-      clearTimeout(this.musicShareTimer);
-      this.musicShareTimer = null;
-    }
-    if (this.musicShareEcho) {
-      this.musicShareEcho.clear();
-    }
-    this.lastSharedMusic = null;
     this.resetChatState();
     this.closeLeaderboardOverlay({ silent: true });
     this.pendingSoloResult = null;
@@ -5615,10 +4947,6 @@ class GameApp extends HTMLElement {
         this.updateLobbyInfo();
         break;
       }
-      case 'lobbyMusic':
-      case 'lobbyMusicUpdate':
-        this.handleIncomingMusicPattern(payload, { silent: payload.type === 'lobbyMusic' });
-        break;
       case 'roomJoined': {
         this.currentRoom = {
           roomId: payload.roomId,
